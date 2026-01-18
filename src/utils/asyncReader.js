@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
+import pdfWorkerCode from 'pdfjs-dist/build/pdf.worker.min.mjs'
 
-const workerUrl = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href
-GlobalWorkerOptions.workerSrc = workerUrl
+GlobalWorkerOptions.workerSrc = pdfWorkerCode
 
 export function readAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
