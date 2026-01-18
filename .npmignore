@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Source files
+src/
+examples/
+
+# Config files
+.babelrc
+.eslintrc.js
+vue.config.js
+postcss.config.js
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.iml
+
+# CI/CD
+.github/
+
+# Development
+node_modules/
+*.log
+
+# Testing
+coverage/
+.nyc_output
+
+# Misc
+.env
+.env.local
+*.pem

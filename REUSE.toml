@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+version = 1
+SPDX-PackageName = "pdf-elements"
+SPDX-PackageSupplier = "LibreCode <contact@librecode.coop>"
+SPDX-PackageDownloadLocation = "https://github.com/LibreSign/pdf-elements/"
+
+default-license = "AGPL-3.0-or-later"
+default-copyright = "2025 LibreCode coop and contributors"
+
+[[annotations]]
+path = [
+    ".babelrc",
+    ".eslintrc.js",
+    "package.json",
+    "package-lock.json",
+    "postcss.config.js",
+    "vue.config.js",
+    "examples/**",
+    "dist/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025 LibreCode coop and contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+[[annotations]]
+path = ".gitignore"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025 LibreCode coop and contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
