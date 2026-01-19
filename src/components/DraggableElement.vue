@@ -153,10 +153,18 @@ export default {
     },
     elementStyle() {
       const scale = this.pagesScale || 1
-      const currentX = this.object.x + this.offsetX + this.resizeOffsetX
-      const currentY = this.object.y + this.offsetY + this.resizeOffsetY
-      const currentWidth = this.object.width + this.resizeOffsetW
-      const currentHeight = this.object.height + this.resizeOffsetH
+      const isDragging = this.mode === 'drag'
+      const isResizing = this.mode === 'resize'
+      const offsetX = isDragging ? this.offsetX : 0
+      const offsetY = isDragging ? this.offsetY : 0
+      const resizeOffsetX = isResizing ? this.resizeOffsetX : 0
+      const resizeOffsetY = isResizing ? this.resizeOffsetY : 0
+      const resizeOffsetW = isResizing ? this.resizeOffsetW : 0
+      const resizeOffsetH = isResizing ? this.resizeOffsetH : 0
+      const currentX = this.object.x + offsetX + resizeOffsetX
+      const currentY = this.object.y + offsetY + resizeOffsetY
+      const currentWidth = this.object.width + resizeOffsetW
+      const currentHeight = this.object.height + resizeOffsetH
       return {
         left: `${currentX * scale}px`,
         top: `${currentY * scale}px`,
@@ -166,9 +174,16 @@ export default {
     },
     toolbarStyle() {
       const scale = this.pagesScale || 1
-      const x = this.object.x + this.offsetX + this.resizeOffsetX
-      const y = this.object.y + this.offsetY + this.resizeOffsetY
-      const width = this.object.width + this.resizeOffsetW
+      const isDragging = this.mode === 'drag'
+      const isResizing = this.mode === 'resize'
+      const offsetX = isDragging ? this.offsetX : 0
+      const offsetY = isDragging ? this.offsetY : 0
+      const resizeOffsetX = isResizing ? this.resizeOffsetX : 0
+      const resizeOffsetY = isResizing ? this.resizeOffsetY : 0
+      const resizeOffsetW = isResizing ? this.resizeOffsetW : 0
+      const x = this.object.x + offsetX + resizeOffsetX
+      const y = this.object.y + offsetY + resizeOffsetY
+      const width = this.object.width + resizeOffsetW
       return {
         left: `${(x + width / 2) * scale}px`,
         top: `${(y - 60) * scale}px`,
