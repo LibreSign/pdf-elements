@@ -24,6 +24,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
               />
                 <div
                 class="overlay"
+                @mousemove="handleMouseMove"
+                @touchmove="handleMouseMove"
               >
                 <div
                   v-if="isAddingMode && previewPageDocIndex === docIndex && previewPageIndex === pIndex && previewElement && previewVisible"
@@ -36,10 +38,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                   }"
                 >
                   <slot
-                    name="custom"
+                    :name="previewElement.type ? `element-${previewElement.type}` : 'custom'"
                     :object="previewElement"
                     :isSelected="false"
-                  />
+                  >
+                    <slot
+                      name="custom"
+                      :object="previewElement"
+                      :isSelected="false"
+                    />
+                  </slot>
                 </div>
 
                 <DraggableElement
@@ -463,17 +471,17 @@ export default {
 
           const canvasEl = this.getPageCanvasElement(docIndex, pageIndex)
           const pagesScale = this.pdfDocuments[docIndex]?.pagesScale?.[pageIndex] || 1
-          const layoutWidth = canvasEl?.offsetWidth || rect.width
-          const layoutHeight = canvasEl?.offsetHeight || rect.height
-          const layoutScaleX = layoutWidth ? rect.width / layoutWidth : 1
-          const layoutScaleY = layoutHeight ? rect.height / layoutHeight : 1
+          const renderWidth = canvasEl?.width || rect.width
+          const renderHeight = canvasEl?.height || rect.height
+          const layoutScaleX = renderWidth ? rect.width / renderWidth : 1
+          const layoutScaleY = renderHeight ? rect.height / renderHeight : 1
           const relX = (clientX - rect.left) / layoutScaleX / pagesScale
           const relY = (clientY - rect.top) / layoutScaleY / pagesScale
 
-          const pageWidth = layoutWidth / pagesScale
-          const pageHeight = layoutHeight / pagesScale
-          this.previewScale.x = pagesScale * layoutScaleX
-          this.previewScale.y = pagesScale * layoutScaleY
+          const pageWidth = renderWidth / pagesScale
+          const pageHeight = renderHeight / pagesScale
+          this.previewScale.x = pagesScale
+          this.previewScale.y = pagesScale
           let x = relX - this.previewElement.width / 2
           let y = relY - this.previewElement.height / 2
 
@@ -593,26 +601,27 @@ export default {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return []
 
       const doc = this.pdfDocuments[docIndex]
-      const scale = this.scale || 1
       const result = []
 
       doc.allObjects.forEach((pageObjects, pageIndex) => {
         const pageRef = this.getPageComponent(docIndex, pageIndex)
         if (!pageRef) return
-
         const measurement = pageRef.getCanvasMeasurement()
-        const normalizedCanvasHeight = measurement.canvasHeight / scale
+        const pagesScale = doc.pagesScale[pageIndex] || 1
+        const normalizedCanvasHeight = measurement.canvasHeight / pagesScale
 
         pageObjects.forEach(object => {
           result.push({
             ...object,
             pageIndex,
             pageNumber: pageIndex + 1,
-            scale,
+            scale: pagesScale,
             normalizedCoordinates: {
               llx: parseInt(object.x, 10),
               lly: parseInt(normalizedCanvasHeight - object.y, 10),
               ury: parseInt(normalizedCanvasHeight - object.y - object.height, 10),
+              width: parseInt(object.width, 10),
+              height: parseInt(object.height, 10),
             },
           })
         })
@@ -729,10 +738,27 @@ export default {
     deleteObject(docIndex, objectId) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       const doc = this.pdfDocuments[docIndex]
-      doc.allObjects = doc.allObjects.map(objects =>
-        objects.filter(object => object.id !== objectId),
+      let deletedObject = null
+      let deletedPageIndex = -1
+
+      doc.allObjects = doc.allObjects.map((objects, pageIndex) =>
+        objects.filter(object => {
+          if (object.id === objectId) {
+            deletedObject = object
+            deletedPageIndex = pageIndex
+            return false
+          }
+          return true
+        }),
       )
       delete this.objectIndexCache[`${docIndex}-${objectId}`]
+      if (deletedObject) {
+        this.$emit('pdf-elements:delete-object', {
+          object: deletedObject,
+          docIndex,
+          pageIndex: deletedPageIndex,
+        })
+      }
     },
 
     checkAndMoveObjectPage(docIndex, objectId, mouseX, mouseY) {
