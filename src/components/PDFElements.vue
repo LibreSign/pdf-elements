@@ -213,6 +213,7 @@ export default {
       boundHandleWheel: null,
       debouncedApplyZoom: null,
       visualScale: this.initialScale,
+      resizeObserver: null,
     }
   },
   mounted() {
@@ -230,6 +231,14 @@ export default {
     this.$el?.addEventListener('wheel', this.boundHandleWheel, { passive: false })
     if (this.autoFitZoom) {
       window.addEventListener('resize', this.adjustZoomToFit)
+      if (typeof ResizeObserver !== 'undefined') {
+        this.resizeObserver = new ResizeObserver(() => {
+          this.scheduleAutoFitZoom()
+        })
+        if (this.$el) {
+          this.resizeObserver.observe(this.$el)
+        }
+      }
     }
   },
   beforeUnmount() {
@@ -250,6 +259,10 @@ export default {
     this.$el?.removeEventListener('scroll', this.onViewportScroll)
     if (this.autoFitZoom) {
       window.removeEventListener('resize', this.adjustZoomToFit)
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect()
+        this.resizeObserver = null
+      }
     }
     if (this.viewportRafId) {
       window.cancelAnimationFrame(this.viewportRafId)
@@ -274,8 +287,16 @@ export default {
         }
 
         const pages = []
+        const pageWidths = Array(pdfDoc.numPages).fill(0)
         for (let p = 1; p <= pdfDoc.numPages; p++) {
-          pages.push(pdfDoc.getPage(p))
+          const pagePromise = pdfDoc.getPage(p)
+          pagePromise.then((page) => {
+            pageWidths[p - 1] = page.getViewport({ scale: 1 }).width
+            if (this.autoFitZoom) {
+              this.scheduleAutoFitZoom()
+            }
+          })
+          pages.push(pagePromise)
         }
 
         docs.push({
@@ -284,6 +305,7 @@ export default {
           pdfDoc,
           numPages: pdfDoc.numPages,
           pages,
+          pageWidths,
           pagesScale: Array(pdfDoc.numPages).fill(this.scale),
           allObjects: Array(pdfDoc.numPages).fill(0).map(() => []),
         })
@@ -296,7 +318,7 @@ export default {
         this.$emit('pdf-elements:end-init', { docsCount: docs.length })
         this.$nextTick(() => {
           if (this.autoFitZoom) {
-            this.adjustZoomToFit()
+            this.scheduleAutoFitZoom()
           }
         })
       }
@@ -798,6 +820,9 @@ export default {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       this.pdfDocuments[docIndex].pagesScale[pageIndex] = e.scale
       this.cachePageBounds()
+      if (this.autoFitZoom) {
+        this.scheduleAutoFitZoom()
+      }
     },
 
     formatPageNumber(currentPage, totalPages) {
@@ -826,15 +851,34 @@ export default {
       const availableWidth = containerWidth - 40
       return Math.max(0.1, Math.min(2, availableWidth / maxPageWidth))
     },
+    scheduleAutoFitZoom() {
+      if (this.zoomRafId) return
+      this.zoomRafId = window.requestAnimationFrame(() => {
+        this.zoomRafId = 0
+        this.adjustZoomToFit()
+      })
+    },
     adjustZoomToFit() {
       if (!this.autoFitZoom || !this.pdfDocuments.length) return
 
-      const canvases = this.$el?.querySelectorAll('canvas')
-      if (!canvases?.length) return
+      const widths = this.pdfDocuments
+        .flatMap(doc => doc.pageWidths || [])
+        .filter(width => width > 0)
 
-      const maxCanvasWidth = Math.max(...Array.from(canvases).map(canvas =>
-        canvas.width / (this.scale || 1),
-      ))
+      let maxCanvasWidth = 0
+      if (widths.length) {
+        maxCanvasWidth = Math.max(...widths)
+      } else {
+        if (this.autoFitZoom) {
+          this.scheduleAutoFitZoom()
+          return
+        }
+        const canvases = this.$el?.querySelectorAll('canvas')
+        if (!canvases?.length) return
+        maxCanvasWidth = Math.max(...Array.from(canvases).map(canvas =>
+          canvas.width / (this.scale || 1),
+        ))
+      }
 
       const optimalScale = this.calculateOptimalScale(maxCanvasWidth)
       if (Math.abs(optimalScale - this.scale) > 0.01) {
