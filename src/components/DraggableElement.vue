@@ -171,7 +171,7 @@ export default {
       const width = this.object.width + this.resizeOffsetW
       return {
         left: `${(x + width / 2) * scale}px`,
-        top: `${(y - 48) * scale}px`,
+        top: `${(y - 60) * scale}px`,
         transform: 'translateX(-50%)',
       }
     },
@@ -318,7 +318,7 @@ export default {
           return
         }
 
-        const minSize = 16
+        const minSize = 16 / (this.pagesScale || 1)
         let newWidth = this.startWidth
         let newHeight = this.startHeight
         let newLeft = this.startLeft
@@ -471,35 +471,43 @@ export default {
   box-shadow: inset 0 0 0 2px #2563eb;
 }
 .resize-handle {
+  all: unset;
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
+  min-width: 0;
+  min-height: 0;
   background: #2563eb;
   border: 1px solid #ffffff;
-  border-radius: 2px;
+  border-radius: 3px;
   padding: 0;
   margin: 0;
+  line-height: 0;
+  font-size: 0;
+  box-sizing: border-box;
+  display: block;
+  appearance: none;
   cursor: pointer;
   z-index: 200;
 }
 .handle-top-left {
-  top: -6px;
-  left: -6px;
+  top: -7px;
+  left: -7px;
   cursor: nwse-resize;
 }
 .handle-top-right {
-  top: -6px;
-  right: -6px;
+  top: -7px;
+  right: -7px;
   cursor: nesw-resize;
 }
 .handle-bottom-left {
-  bottom: -6px;
-  left: -6px;
+  bottom: -7px;
+  left: -7px;
   cursor: nesw-resize;
 }
 .handle-bottom-right {
-  bottom: -6px;
-  right: -6px;
+  bottom: -7px;
+  right: -7px;
   cursor: nwse-resize;
 }
 </style>
