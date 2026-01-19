@@ -179,6 +179,10 @@ export default {
       type: String,
       default: '{currentPage} of {totalPages}',
     },
+    autoFitZoom: {
+      type: Boolean,
+      default: false,
+    },
   },
   data() {
     return {
@@ -224,6 +228,9 @@ export default {
     window.addEventListener('resize', this.onViewportScroll)
     this.$el?.addEventListener('scroll', this.onViewportScroll, { passive: true })
     this.$el?.addEventListener('wheel', this.boundHandleWheel, { passive: false })
+    if (this.autoFitZoom) {
+      window.addEventListener('resize', this.adjustZoomToFit)
+    }
   },
   beforeUnmount() {
     if (this.zoomRafId) {
@@ -241,6 +248,9 @@ export default {
     window.removeEventListener('scroll', this.onViewportScroll)
     window.removeEventListener('resize', this.onViewportScroll)
     this.$el?.removeEventListener('scroll', this.onViewportScroll)
+    if (this.autoFitZoom) {
+      window.removeEventListener('resize', this.adjustZoomToFit)
+    }
     if (this.viewportRafId) {
       window.cancelAnimationFrame(this.viewportRafId)
       this.viewportRafId = 0
@@ -803,6 +813,29 @@ export default {
       const doc = this.pdfDocuments[docIndex]
       const pagesScale = doc.pagesScale[pageIndex] || 1
       return pageRef.getCanvasMeasurement().canvasHeight / pagesScale
+    },
+    calculateOptimalScale(maxPageWidth) {
+      const containerWidth = this.$el?.clientWidth || 0
+      if (!containerWidth || !maxPageWidth) return 1
+
+      const availableWidth = containerWidth - 40
+      return Math.max(0.1, Math.min(2, availableWidth / maxPageWidth))
+    },
+    adjustZoomToFit() {
+      if (!this.autoFitZoom || !this.pdfDocuments.length) return
+
+      const canvases = this.$el?.querySelectorAll('canvas')
+      if (!canvases?.length) return
+
+      const maxCanvasWidth = Math.max(...Array.from(canvases).map(canvas =>
+        canvas.width / (this.scale || 1),
+      ))
+
+      const optimalScale = this.calculateOptimalScale(maxCanvasWidth)
+      if (Math.abs(optimalScale - this.scale) > 0.01) {
+        this.scale = optimalScale
+        this.visualScale = optimalScale
+      }
     },
   },
 }
