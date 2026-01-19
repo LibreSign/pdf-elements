@@ -6,6 +6,10 @@ import pdfWorkerCode from 'pdfjs-dist/build/pdf.worker.min.mjs'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerCode
 
+export function setWorkerPath(path) {
+  GlobalWorkerOptions.workerSrc = path
+}
+
 export function readAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
