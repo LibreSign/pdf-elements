@@ -213,7 +213,7 @@ export default {
       boundHandleWheel: null,
       debouncedApplyZoom: null,
       visualScale: this.initialScale,
-      resizeObserver: null,
+      autoFitApplied: false,
     }
   },
   mounted() {
@@ -229,17 +229,6 @@ export default {
     window.addEventListener('resize', this.onViewportScroll)
     this.$el?.addEventListener('scroll', this.onViewportScroll, { passive: true })
     this.$el?.addEventListener('wheel', this.boundHandleWheel, { passive: false })
-    if (this.autoFitZoom) {
-      window.addEventListener('resize', this.adjustZoomToFit)
-      if (typeof ResizeObserver !== 'undefined') {
-        this.resizeObserver = new ResizeObserver(() => {
-          this.scheduleAutoFitZoom()
-        })
-        if (this.$el) {
-          this.resizeObserver.observe(this.$el)
-        }
-      }
-    }
   },
   beforeUnmount() {
     if (this.zoomRafId) {
@@ -257,13 +246,6 @@ export default {
     window.removeEventListener('scroll', this.onViewportScroll)
     window.removeEventListener('resize', this.onViewportScroll)
     this.$el?.removeEventListener('scroll', this.onViewportScroll)
-    if (this.autoFitZoom) {
-      window.removeEventListener('resize', this.adjustZoomToFit)
-      if (this.resizeObserver) {
-        this.resizeObserver.disconnect()
-        this.resizeObserver = null
-      }
-    }
     if (this.viewportRafId) {
       window.cancelAnimationFrame(this.viewportRafId)
       this.viewportRafId = 0
@@ -273,6 +255,7 @@ export default {
     async init() {
       if (!this.initFiles || this.initFiles.length === 0) return
       const docs = []
+      this.autoFitApplied = false
 
       for (let i = 0; i < this.initFiles.length; i++) {
         const file = this.initFiles[i]
@@ -852,6 +835,7 @@ export default {
       return Math.max(0.1, Math.min(2, availableWidth / maxPageWidth))
     },
     scheduleAutoFitZoom() {
+      if (this.autoFitApplied) return
       if (this.zoomRafId) return
       this.zoomRafId = window.requestAnimationFrame(() => {
         this.zoomRafId = 0
@@ -859,7 +843,7 @@ export default {
       })
     },
     adjustZoomToFit() {
-      if (!this.autoFitZoom || !this.pdfDocuments.length) return
+      if (!this.autoFitZoom || this.autoFitApplied || !this.pdfDocuments.length) return
 
       const widths = this.pdfDocuments
         .flatMap(doc => doc.pageWidths || [])
@@ -881,6 +865,7 @@ export default {
       }
 
       const optimalScale = this.calculateOptimalScale(maxCanvasWidth)
+      this.autoFitApplied = true
       if (Math.abs(optimalScale - this.scale) > 0.01) {
         this.scale = optimalScale
         this.visualScale = optimalScale
