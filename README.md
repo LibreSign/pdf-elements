@@ -24,6 +24,7 @@ A Vue 2 component for rendering PDFs with draggable and resizable element overla
 | `hideSelectionUI` | Boolean | `false` | Hide selection handles and actions UI |
 | `showSelectionHandles` | Boolean | `true` | Show resize/move handles on selected elements |
 | `showElementActions` | Boolean | `true` | Show action buttons on selected elements |
+| `readOnly` | Boolean | `false` | Disable drag, resize, and actions for elements |
 | `pageCountFormat` | String | `'{currentPage} of {totalPages}'` | Format string for page counter |
 | `autoFitZoom` | Boolean | `false` | Automatically adjust zoom to fit viewport on window resize |
 

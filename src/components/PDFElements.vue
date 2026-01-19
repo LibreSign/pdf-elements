@@ -58,6 +58,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                   :pages-scale="getRenderPageScale(docIndex, pIndex)"
                   :page-width="getPageWidth(docIndex, pIndex)"
                   :page-height="getPageHeight(docIndex, pIndex)"
+                  :read-only="readOnly"
                   :on-update="(payload) => updateObject(docIndex, object.id, payload)"
                   :on-delete="() => deleteObject(docIndex, object.id)"
                   :on-drag-start="(mouseX, mouseY, pointerOffset, dragShift) => startDraggingElement(docIndex, pIndex, object, mouseX, mouseY, pointerOffset, dragShift)"
@@ -183,6 +184,10 @@ export default {
       type: Boolean,
       default: true,
     },
+    readOnly: {
+      type: Boolean,
+      default: false,
+    },
     pageCountFormat: {
       type: String,
       default: '{currentPage} of {totalPages}',
@@ -222,6 +227,7 @@ export default {
       debouncedApplyZoom: null,
       visualScale: this.initialScale,
       autoFitApplied: false,
+      lastContainerWidth: 0,
     }
   },
   mounted() {
@@ -449,6 +455,14 @@ export default {
       this.viewportRafId = window.requestAnimationFrame(() => {
         if (this.isAddingMode || this.isDraggingElement) {
           this.cachePageBounds()
+        }
+        if (this.autoFitZoom && !this.isAddingMode && !this.isDraggingElement) {
+          const containerWidth = this.$el?.clientWidth || 0
+          if (containerWidth && containerWidth !== this.lastContainerWidth) {
+            this.lastContainerWidth = containerWidth
+            this.autoFitApplied = false
+            this.scheduleAutoFitZoom()
+          }
         }
         this.viewportRafId = 0
       })
