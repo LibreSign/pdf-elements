@@ -294,6 +294,11 @@ export default {
         this.selectedDocIndex = 0
         this.selectedPageIndex = 0
         this.$emit('pdf-elements:end-init', { docsCount: docs.length })
+        this.$nextTick(() => {
+          if (this.autoFitZoom) {
+            this.adjustZoomToFit()
+          }
+        })
       }
     },
 
@@ -835,6 +840,10 @@ export default {
       if (Math.abs(optimalScale - this.scale) > 0.01) {
         this.scale = optimalScale
         this.visualScale = optimalScale
+        this.pdfDocuments.forEach((doc) => {
+          doc.pagesScale = doc.pagesScale.map(() => this.scale)
+        })
+        this.cachePageBounds()
       }
     },
   },
