@@ -46,7 +46,7 @@ jobs:
         env:
           CYPRESS_INSTALL_BINARY: 0
           PUPPETEER_SKIP_DOWNLOAD: true
-        run: npm ci
+        run: npm i
 
       - name: Lint
         run: npm run lint
