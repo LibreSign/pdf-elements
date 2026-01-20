@@ -10,7 +10,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
       class="actions-toolbar"
       :style="toolbarStyle"
     >
-      <slot name="actions" :object="object" :onDelete="onDelete">
+      <slot name="actions" :object="object" :onDelete="onDelete" :onDuplicate="onDuplicate">
+        <button class="action-btn" type="button" title="Duplicate" @click.stop="onDuplicate">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H10V7h9v14z"/>
+          </svg>
+        </button>
         <button class="action-btn" type="button" title="Delete" @click.stop="onDelete">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M6.5 1h3a.5.5 0 0 1 .5.5v1H6v-1a.5.5 0 0 1 .5-.5ZM11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3A1.5 1.5 0 0 0 5 1.5v1H2.5a.5.5 0 0 0 0 1h.5v10.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V3.5h.5a.5.5 0 0 0 0-1H11Zm1 1v10.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V3.5h8Z"/>
@@ -77,6 +82,10 @@ export default {
       type: Function,
       default: () => {},
     },
+    onDuplicate: {
+      type: Function,
+      default: () => {},
+    },
     onDragStart: {
       type: Function,
       default: () => {},
@@ -124,7 +133,11 @@ export default {
     readOnly: {
       type: Boolean,
       default: false,
-    }
+    },
+    ignoreClickOutsideSelectors: {
+      type: Array,
+      default: () => [],
+    },
   },
   data() {
     return {
@@ -237,6 +250,14 @@ export default {
       this.startDrag(event)
     },
     handleClickOutside(event) {
+      const selectors = Array.isArray(this.ignoreClickOutsideSelectors)
+        ? this.ignoreClickOutsideSelectors
+        : []
+      for (const selector of selectors) {
+        if (selector && event?.target?.closest?.(selector)) {
+          return
+        }
+      }
       if (this.$el && !this.$el.contains(event.target)) {
         this.isSelected = false
       }

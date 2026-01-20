@@ -60,6 +60,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                   :read-only="readOnly"
                   :on-update="(payload) => updateObject(docIndex, object.id, payload)"
                   :on-delete="() => deleteObject(docIndex, object.id)"
+                  :on-duplicate="() => duplicateObject(docIndex, object.id)"
                   :on-drag-start="(mouseX, mouseY, pointerOffset, dragShift) => startDraggingElement(docIndex, pIndex, object, mouseX, mouseY, pointerOffset, dragShift)"
                   :on-drag-move="updateDraggingPosition"
                   :on-drag-end="stopDraggingElement"
@@ -71,6 +72,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                   :global-drag-page-index="draggingPageIndex"
                   :show-selection-ui="showSelectionHandles && !hideSelectionUI && object.resizable !== false"
                   :show-default-actions="showElementActions && !hideSelectionUI"
+                  :ignore-click-outside-selectors="ignoreClickOutsideSelectors"
                 >
                   <template #default="slotProps">
                     <slot
@@ -92,6 +94,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                       name="actions"
                       :object="slotProps.object"
                       :onDelete="slotProps.onDelete"
+                      :onDuplicate="slotProps.onDuplicate"
                     />
                   </template>
                 </DraggableElement>
@@ -190,6 +193,10 @@ export default {
     readOnly: {
       type: Boolean,
       default: false,
+    },
+    ignoreClickOutsideSelectors: {
+      type: Array,
+      default: () => [],
     },
     pageCountFormat: {
       type: String,
@@ -939,6 +946,64 @@ export default {
           pageIndex: deletedPageIndex,
         })
       }
+    },
+    duplicateObject(docIndex, objectId) {
+      if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
+      const doc = this.pdfDocuments[docIndex]
+
+      const cacheKey = `${docIndex}-${objectId}`
+      let pageIndex = this.objectIndexCache[cacheKey]
+
+      if (pageIndex === undefined) {
+        pageIndex = findObjectPageIndex(doc, objectId)
+        if (pageIndex !== undefined) {
+          this.objectIndexCache[cacheKey] = pageIndex
+        }
+      }
+
+      if (pageIndex === undefined) return
+
+      const sourceObject = doc.allObjects[pageIndex]?.find(o => o.id === objectId)
+      if (!sourceObject) return
+
+      const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, pageIndex)
+      const offset = 12
+      const { x, y } = clampPosition(
+        sourceObject.x + offset,
+        sourceObject.y + offset,
+        sourceObject.width,
+        sourceObject.height,
+        pageWidth,
+        pageHeight,
+      )
+
+      let duplicatedSigner = sourceObject.signer
+      if (duplicatedSigner?.element && Object.prototype.hasOwnProperty.call(duplicatedSigner.element, 'elementId')) {
+        duplicatedSigner = {
+          ...duplicatedSigner,
+          element: { ...duplicatedSigner.element },
+        }
+        delete duplicatedSigner.element.elementId
+      }
+
+      const duplicatedObject = {
+        ...sourceObject,
+        id: this.generateObjectId(),
+        x,
+        y,
+        signer: duplicatedSigner,
+      }
+
+      doc.allObjects[pageIndex].push(duplicatedObject)
+      this.objectIndexCache[`${docIndex}-${duplicatedObject.id}`] = pageIndex
+
+      this.$nextTick(() => {
+        const refKey = `draggable${docIndex}-${pageIndex}-${duplicatedObject.id}`
+        const draggableRefs = this.$refs[refKey]
+        if (draggableRefs && Array.isArray(draggableRefs) && draggableRefs[0]) {
+          draggableRefs[0].isSelected = true
+        }
+      })
     },
 
     checkAndMoveObjectPage(docIndex, objectId, mouseX, mouseY) {
