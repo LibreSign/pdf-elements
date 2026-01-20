@@ -120,6 +120,10 @@ export default {
     showDefaultActions: {
       type: Boolean,
       default: true,
+    },
+    readOnly: {
+      type: Boolean,
+      default: false,
     }
   },
   data() {
@@ -170,6 +174,7 @@ export default {
         top: `${currentY * scale}px`,
         width: `${currentWidth * scale}px`,
         height: `${currentHeight * scale}px`,
+        pointerEvents: this.readOnly ? 'none' : 'auto',
       }
     },
     toolbarStyle() {
@@ -218,6 +223,9 @@ export default {
   },
   methods: {
     handleElementClick(event) {
+      if (this.readOnly) {
+        return
+      }
       if (event.target.closest('.delete-handle') || event.target.closest('[data-stop-drag]') || event.target.closest('.actions-toolbar')) {
         return
       }
@@ -235,6 +243,7 @@ export default {
       this.startResize(direction, event)
     },
     startDrag(event) {
+      if (this.readOnly) return
       if (event.target.classList.contains('delete')) return
       if (event.target.classList.contains('resize-handle')) return
       this.mode = 'drag'
@@ -271,6 +280,7 @@ export default {
       window.addEventListener('touchend', this.boundStopInteraction)
     },
     startResize(direction, event) {
+      if (this.readOnly) return
       this.mode = 'resize'
       this.direction = direction
       this.startX = event.type.includes('touch') ? event.touches[0].clientX : event.clientX
