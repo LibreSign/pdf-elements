@@ -467,7 +467,7 @@ export default {
   border-radius: 6px;
   padding: 6px 8px;
   box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.15), 0 2px 6px -2px rgba(0, 0, 0, 0.1);
-  z-index: 100;
+  z-index: 5;
   white-space: nowrap;
 }
 .action-btn {
@@ -513,7 +513,7 @@ export default {
   display: block;
   appearance: none;
   cursor: pointer;
-  z-index: 200;
+  z-index: 5;
 }
 .handle-top-left {
   top: -7px;
