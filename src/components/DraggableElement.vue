@@ -189,9 +189,12 @@ export default {
       const x = this.object.x + offsetX + resizeOffsetX
       const y = this.object.y + offsetY + resizeOffsetY
       const width = this.object.width + resizeOffsetW
+      const toolbarOffset = 60
+      const nextTop = y - toolbarOffset
+      const top = nextTop < 0 ? (y + 8) : nextTop
       return {
         left: `${(x + width / 2) * scale}px`,
-        top: `${(y - 60) * scale}px`,
+        top: `${top * scale}px`,
         transform: 'translateX(-50%)',
       }
     },
