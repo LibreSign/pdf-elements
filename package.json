@@ -31,7 +31,6 @@
     "lint:fix": "vue-cli-service lint"
   },
   "dependencies": {
-    "debounce": "^3.0.0",
     "pdfjs-dist": "^5.4.530",
     "vue": "^2.7.16"
   },

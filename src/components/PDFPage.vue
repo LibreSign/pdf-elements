@@ -24,7 +24,8 @@ export default {
     return {
       dynamicScale: this.scale,
       isRendering: false,
-      boundMeasure: null,
+      pendingRender: false,
+      renderTask: null,
     }
   },
   watch: {
@@ -34,13 +35,16 @@ export default {
     },
   },
   mounted() {
-    this.boundMeasure = this.measure.bind(this)
-    window.addEventListener('resize', this.boundMeasure)
     this.render()
   },
   beforeUnmount() {
-    if (this.boundMeasure) {
-      window.removeEventListener('resize', this.boundMeasure)
+    if (this.renderTask) {
+      try {
+        this.renderTask.cancel()
+      } catch (e) {
+        // Ignore render cancellation errors.
+      }
+      this.renderTask = null
     }
   },
   methods: {
@@ -56,24 +60,43 @@ export default {
       })
     },
     async render() {
-      if (this.isRendering) return
+      if (this.isRendering) {
+        this.pendingRender = true
+        return
+      }
       this.isRendering = true
+      this.pendingRender = false
       try {
         const _page = await this.page
         const canvas = this.$refs.canvas
+        if (!canvas) return
+        if (this.renderTask) {
+          try {
+            this.renderTask.cancel()
+          } catch (e) {
+            // Ignore render cancellation errors.
+          }
+          this.renderTask = null
+        }
         const context = canvas.getContext('2d')
         const viewport = _page.getViewport({
           scale: this.dynamicScale,
         })
         canvas.width = viewport.width
         canvas.height = viewport.height
-        await _page.render({
+        this.renderTask = _page.render({
           canvasContext: context,
           viewport,
-        }).promise
+        })
+        await this.renderTask.promise
         this.measure()
       } finally {
         this.isRendering = false
+        this.renderTask = null
+        if (this.pendingRender) {
+          this.pendingRender = false
+          this.render()
+        }
       }
     },
   },

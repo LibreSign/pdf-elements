@@ -1,11 +1,6 @@
 // SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { GlobalWorkerOptions } from 'pdfjs-dist'
-import pdfWorkerCode from 'pdfjs-dist/build/pdf.worker.min.mjs'
-
-GlobalWorkerOptions.workerSrc = pdfWorkerCode
-
 import PDFElements from './components/PDFElements.vue'
 export { setWorkerPath } from './utils/asyncReader.js'
 

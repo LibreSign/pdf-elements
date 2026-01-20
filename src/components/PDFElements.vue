@@ -208,7 +208,16 @@ export default {
       previewPageDocIndex: -1,
       previewPageIndex: -1,
       previewVisible: false,
-      pagesBoundingRects: {},
+      hoverRafId: 0,
+      pendingHoverClientPos: null,
+      lastHoverRect: null,
+      addingListenersAttached: false,
+      dragRafId: 0,
+      pendingDragClientPos: null,
+      pageBoundsVersion: 0,
+      lastScrollTop: 0,
+      lastClientWidth: 0,
+      nextObjectCounter: 0,
       isDraggingElement: false,
       draggingObject: null,
       draggingDocIndex: -1,
@@ -228,14 +237,14 @@ export default {
       lastContainerWidth: 0,
     }
   },
+  created() {
+    this._pagesBoundingRects = {}
+    this._pagesBoundingRectsList = []
+    this._pageMeasurementCache = {}
+  },
   mounted() {
     this.boundHandleWheel = this.handleWheel.bind(this)
     this.init()
-    document.addEventListener('mousemove', this.handleMouseMove)
-    document.addEventListener('touchmove', this.handleMouseMove, { passive: true })
-    document.addEventListener('mouseup', this.finishAdding)
-    document.addEventListener('touchend', this.finishAdding)
-    document.addEventListener('keydown', this.handleKeyDown)
     window.addEventListener('scroll', this.onViewportScroll, { passive: true })
     window.addEventListener('resize', this.onViewportScroll)
     this.$el?.addEventListener('scroll', this.onViewportScroll, { passive: true })
@@ -252,17 +261,21 @@ export default {
     if (this.boundHandleWheel) {
       this.$el?.removeEventListener('wheel', this.boundHandleWheel)
     }
-    document.removeEventListener('mousemove', this.handleMouseMove)
-    document.removeEventListener('touchmove', this.handleMouseMove)
-    document.removeEventListener('mouseup', this.finishAdding)
-    document.removeEventListener('touchend', this.finishAdding)
-    document.removeEventListener('keydown', this.handleKeyDown)
+    this.detachAddingListeners()
     window.removeEventListener('scroll', this.onViewportScroll)
     window.removeEventListener('resize', this.onViewportScroll)
     this.$el?.removeEventListener('scroll', this.onViewportScroll)
     if (this.viewportRafId) {
       window.cancelAnimationFrame(this.viewportRafId)
       this.viewportRafId = 0
+    }
+    if (this.hoverRafId) {
+      window.cancelAnimationFrame(this.hoverRafId)
+      this.hoverRafId = 0
+    }
+    if (this.dragRafId) {
+      window.cancelAnimationFrame(this.dragRafId)
+      this.dragRafId = 0
     }
   },
   methods: {
@@ -288,7 +301,7 @@ export default {
         for (let p = 1; p <= pdfDoc.numPages; p++) {
           const pagePromise = pdfDoc.getPage(p)
           pagePromise.then((page) => {
-            pageWidths[p - 1] = page.getViewport({ scale: 1 }).width
+            pageWidths.splice(p - 1, 1, page.getViewport({ scale: 1 }).width)
             if (this.autoFitZoom) {
               this.scheduleAutoFitZoom()
             }
@@ -309,6 +322,7 @@ export default {
       }
 
       this.pdfDocuments = docs
+      this._pageMeasurementCache = {}
       if (docs.length) {
         this.selectedDocIndex = 0
         this.selectedPageIndex = 0
@@ -338,11 +352,8 @@ export default {
         ? dragShift
         : { x: 0, y: 0 }
 
-      const pageKey = `${docIndex}-${pageIndex}`
-      if (!this.pagesBoundingRects[pageKey]) {
-        this.cachePageBounds()
-      }
-      const pageRect = this.pagesBoundingRects[pageKey]?.rect
+      this.cachePageBounds()
+      const pageRect = this.getPageBoundsMap()[`${docIndex}-${pageIndex}`]?.rect
       if (pointerOffset && typeof pointerOffset.x === 'number' && typeof pointerOffset.y === 'number') {
         this.draggingInitialMouseOffset.x = pointerOffset.x
         this.draggingInitialMouseOffset.y = pointerOffset.y
@@ -358,17 +369,22 @@ export default {
         this.draggingClientPosition.y = mouseY - this.draggingInitialMouseOffset.y
       }
 
-      this.cachePageBounds()
     },
 
     updateDraggingPosition(clientX, clientY) {
       if (!this.isDraggingElement) return
 
-      this.lastMouseClientPos.x = clientX
-      this.lastMouseClientPos.y = clientY
-
-      this.draggingClientPosition.x = clientX - this.draggingInitialMouseOffset.x
-      this.draggingClientPosition.y = clientY - this.draggingInitialMouseOffset.y
+      this.pendingDragClientPos = { x: clientX, y: clientY }
+      if (this.dragRafId) return
+      this.dragRafId = window.requestAnimationFrame(() => {
+        this.dragRafId = 0
+        const pending = this.pendingDragClientPos
+        if (!pending) return
+        this.lastMouseClientPos.x = pending.x
+        this.lastMouseClientPos.y = pending.y
+        this.draggingClientPosition.x = pending.x - this.draggingInitialMouseOffset.x
+        this.draggingClientPosition.y = pending.y - this.draggingInitialMouseOffset.y
+      })
     },
 
     stopDraggingElement() {
@@ -400,10 +416,12 @@ export default {
       this.draggingDocIndex = -1
       this.draggingPageIndex = -1
       this.draggingElementShift = { x: 0, y: 0 }
+      this.pendingDragClientPos = null
     },
 
     startAddingElement(templateObject) {
       if (!this.pdfDocuments.length) return
+      this.attachAddingListeners()
       this.isAddingMode = true
       this.previewElement = { ...templateObject }
       this.previewPageDocIndex = 0
@@ -415,10 +433,23 @@ export default {
 
     cachePageBounds() {
       const nextRects = {}
+      const container = this.$el
+      const scrollTop = container?.scrollTop || 0
+      const viewHeight = container?.clientHeight || 0
+      const minY = Math.max(0, scrollTop - 300)
+      const maxY = scrollTop + viewHeight + 300
       for (let docIdx = 0; docIdx < this.pdfDocuments.length; docIdx++) {
         for (let pageIdx = 0; pageIdx < this.pdfDocuments[docIdx].pages.length; pageIdx++) {
           const canvas = this.getPageCanvasElement(docIdx, pageIdx)
           if (!canvas) continue
+          if (viewHeight) {
+            const wrapper = canvas.closest('.page-wrapper') || canvas
+            const offsetTop = wrapper.offsetTop || 0
+            const offsetHeight = wrapper.offsetHeight || 0
+            if (offsetTop + offsetHeight < minY || offsetTop > maxY) {
+              continue
+            }
+          }
           const rect = canvas.getBoundingClientRect()
           nextRects[`${docIdx}-${pageIdx}`] = {
             docIndex: docIdx,
@@ -427,30 +458,55 @@ export default {
           }
         }
       }
-      this.pagesBoundingRects = nextRects
+      this._pagesBoundingRects = nextRects
+      this._pagesBoundingRectsList = Object.values(nextRects)
+      this.pageBoundsVersion++
+    },
+    cachePageBoundsForPage(docIndex, pageIndex) {
+      const canvas = this.getPageCanvasElement(docIndex, pageIndex)
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      this._pagesBoundingRects = {
+        ...this._pagesBoundingRects,
+        [`${docIndex}-${pageIndex}`]: {
+          docIndex,
+          pageIndex,
+          rect,
+        },
+      }
+      this._pagesBoundingRectsList = Object.values(this._pagesBoundingRects)
+      this.pageBoundsVersion++
+    },
+    getPageBoundsMap() {
+      return this._pagesBoundingRects || {}
+    },
+    getPageBoundsList() {
+      return this._pagesBoundingRectsList || []
     },
 
     getDisplayedPageScale(docIndex, pageIndex) {
+      this.pageBoundsVersion
       const doc = this.pdfDocuments[docIndex]
       if (!doc) return 1
       const baseWidth = doc.pageWidths?.[pageIndex] || 0
-      const rectWidth = this.pagesBoundingRects[`${docIndex}-${pageIndex}`]?.rect?.width || 0
+      const pageBoundsMap = this.getPageBoundsMap()
+      if (!pageBoundsMap[`${docIndex}-${pageIndex}`]) {
+        this.cachePageBoundsForPage(docIndex, pageIndex)
+      }
+      const rectWidth = this.getPageBoundsMap()[`${docIndex}-${pageIndex}`]?.rect?.width || 0
       if (rectWidth && baseWidth) {
         return rectWidth / baseWidth
       }
-      const canvas = this.getPageCanvasElement(docIndex, pageIndex)
-      const fallbackRectWidth = canvas?.getBoundingClientRect?.().width || 0
-      if (fallbackRectWidth && baseWidth) {
-        return fallbackRectWidth / baseWidth
+      if (this.isAddingMode || this.isDraggingElement) {
+        const canvas = this.getPageCanvasElement(docIndex, pageIndex)
+        const fallbackRectWidth = canvas?.getBoundingClientRect?.().width || 0
+        if (fallbackRectWidth && baseWidth) {
+          return fallbackRectWidth / baseWidth
+        }
       }
       const base = doc.pagesScale[pageIndex] || 1
       const factor = this.visualScale && this.scale ? (this.visualScale / this.scale) : 1
       return base * factor
-    },
-    getRenderPageScale(docIndex, pageIndex) {
-      const doc = this.pdfDocuments[docIndex]
-      if (!doc) return 1
-      return doc.pagesScale[pageIndex] || 1
     },
     getPageComponent(docIndex, pageIndex) {
       const pageRef = this.$refs[`page${docIndex}-${pageIndex}`]
@@ -464,13 +520,22 @@ export default {
     onViewportScroll() {
       if (this.viewportRafId) return
       this.viewportRafId = window.requestAnimationFrame(() => {
+        const container = this.$el
+        const scrollTop = container?.scrollTop || 0
+        const clientWidth = container?.clientWidth || 0
+        const scrollChanged = scrollTop !== this.lastScrollTop
+        const widthChanged = clientWidth !== this.lastClientWidth
+        this.lastScrollTop = scrollTop
+        this.lastClientWidth = clientWidth
+
         if (this.isAddingMode || this.isDraggingElement) {
-          this.cachePageBounds()
+          if (scrollChanged || widthChanged) {
+            this.cachePageBounds()
+          }
         }
         if (this.autoFitZoom && !this.isAddingMode && !this.isDraggingElement) {
-          const containerWidth = this.$el?.clientWidth || 0
-          if (containerWidth && containerWidth !== this.lastContainerWidth) {
-            this.lastContainerWidth = containerWidth
+          if (clientWidth && widthChanged) {
+            this.lastContainerWidth = clientWidth
             this.autoFitApplied = false
             this.scheduleAutoFitZoom()
           }
@@ -481,49 +546,75 @@ export default {
 
     handleMouseMove(event) {
       if (!this.isAddingMode || !this.previewElement) return
-
       const clientX = event.type.includes('touch') ? event.touches[0].clientX : event.clientX
       const clientY = event.type.includes('touch') ? event.touches[0].clientY : event.clientY
+      this.pendingHoverClientPos = { x: clientX, y: clientY }
+      if (this.hoverRafId) return
+      this.hoverRafId = window.requestAnimationFrame(() => {
+        this.hoverRafId = 0
+        const pending = this.pendingHoverClientPos
+        if (!pending) return
 
-      let foundPage = false
-      for (const key in this.pagesBoundingRects) {
-        const { docIndex, pageIndex, rect } = this.pagesBoundingRects[key]
-        if (clientX >= rect.left && clientX <= rect.right &&
-            clientY >= rect.top && clientY <= rect.bottom) {
-          this.previewPageDocIndex = docIndex
-          this.previewPageIndex = pageIndex
-          foundPage = true
+        const cursorX = pending.x
+        const cursorY = pending.y
+        let target = null
 
-          const canvasEl = this.getPageCanvasElement(docIndex, pageIndex)
-          const pagesScale = this.pdfDocuments[docIndex]?.pagesScale?.[pageIndex] || 1
-          const renderWidth = canvasEl?.width || rect.width
-          const renderHeight = canvasEl?.height || rect.height
-          const layoutScaleX = renderWidth ? rect.width / renderWidth : 1
-          const layoutScaleY = renderHeight ? rect.height / renderHeight : 1
-          const relX = (clientX - rect.left) / layoutScaleX / pagesScale
-          const relY = (clientY - rect.top) / layoutScaleY / pagesScale
-
-          const pageWidth = renderWidth / pagesScale
-          const pageHeight = renderHeight / pagesScale
-          this.previewScale.x = pagesScale
-          this.previewScale.y = pagesScale
-          let x = relX - this.previewElement.width / 2
-          let y = relY - this.previewElement.height / 2
-
-          x = Math.max(0, Math.min(x, pageWidth - this.previewElement.width))
-          y = Math.max(0, Math.min(y, pageHeight - this.previewElement.height))
-
-          this.previewPosition.x = x
-          this.previewPosition.y = y
-          this.previewVisible = true
-          break
+        if (this.lastHoverRect &&
+          cursorX >= this.lastHoverRect.left && cursorX <= this.lastHoverRect.right &&
+          cursorY >= this.lastHoverRect.top && cursorY <= this.lastHoverRect.bottom) {
+          target = {
+            docIndex: this.previewPageDocIndex,
+            pageIndex: this.previewPageIndex,
+            rect: this.lastHoverRect,
+          }
+        } else {
+          const rects = this.getPageBoundsList().length
+            ? this.getPageBoundsList()
+            : Object.values(this.getPageBoundsMap())
+          for (let i = 0; i < rects.length; i++) {
+            const entry = rects[i]
+            const rect = entry.rect
+            if (cursorX >= rect.left && cursorX <= rect.right &&
+                cursorY >= rect.top && cursorY <= rect.bottom) {
+              target = entry
+              break
+            }
+          }
         }
-      }
 
-      if (!foundPage) {
-        this.previewVisible = false
-        this.previewScale = { x: 1, y: 1 }
-      }
+        if (!target) {
+          this.previewVisible = false
+          this.previewScale = { x: 1, y: 1 }
+          this.lastHoverRect = null
+          return
+        }
+
+        this.previewPageDocIndex = target.docIndex
+        this.previewPageIndex = target.pageIndex
+        this.lastHoverRect = target.rect
+        const canvasEl = this.getPageCanvasElement(target.docIndex, target.pageIndex)
+        const pagesScale = this.pdfDocuments[target.docIndex]?.pagesScale?.[target.pageIndex] || 1
+        const renderWidth = canvasEl?.width || target.rect.width
+        const renderHeight = canvasEl?.height || target.rect.height
+        const layoutScaleX = renderWidth ? target.rect.width / renderWidth : 1
+        const layoutScaleY = renderHeight ? target.rect.height / renderHeight : 1
+        const relX = (cursorX - target.rect.left) / layoutScaleX / pagesScale
+        const relY = (cursorY - target.rect.top) / layoutScaleY / pagesScale
+
+        const pageWidth = renderWidth / pagesScale
+        const pageHeight = renderHeight / pagesScale
+        this.previewScale.x = pagesScale
+        this.previewScale.y = pagesScale
+        let x = relX - this.previewElement.width / 2
+        let y = relY - this.previewElement.height / 2
+
+        x = Math.max(0, Math.min(x, pageWidth - this.previewElement.width))
+        y = Math.max(0, Math.min(y, pageHeight - this.previewElement.height))
+
+        this.previewPosition.x = x
+        this.previewPosition.y = y
+        this.previewVisible = true
+      })
     },
 
     handleKeyDown(event) {
@@ -555,6 +646,7 @@ export default {
         doc.pagesScale = doc.pagesScale.map(() => this.scale)
       })
 
+      this._pageMeasurementCache = {}
       this.cachePageBounds()
     },
 
@@ -564,7 +656,7 @@ export default {
 
       const objectToAdd = {
         ...this.previewElement,
-        id: `obj-${Date.now()}`,
+        id: this.generateObjectId(),
         x: Math.round(this.previewPosition.x),
         y: Math.round(this.previewPosition.y),
       }
@@ -601,6 +693,30 @@ export default {
       this.isAddingMode = false
       this.previewElement = null
       this.previewVisible = false
+      this.detachAddingListeners()
+    },
+    generateObjectId() {
+      const counter = this.nextObjectCounter++
+      const rand = Math.random().toString(36).slice(2, 8)
+      return `obj-${Date.now()}-${counter}-${rand}`
+    },
+    attachAddingListeners() {
+      if (this.addingListenersAttached) return
+      this.addingListenersAttached = true
+      document.addEventListener('mousemove', this.handleMouseMove)
+      document.addEventListener('touchmove', this.handleMouseMove, { passive: true })
+      document.addEventListener('mouseup', this.finishAdding)
+      document.addEventListener('touchend', this.finishAdding)
+      document.addEventListener('keydown', this.handleKeyDown)
+    },
+    detachAddingListeners() {
+      if (!this.addingListenersAttached) return
+      this.addingListenersAttached = false
+      document.removeEventListener('mousemove', this.handleMouseMove)
+      document.removeEventListener('touchmove', this.handleMouseMove, { passive: true })
+      document.removeEventListener('mouseup', this.finishAdding)
+      document.removeEventListener('touchend', this.finishAdding)
+      document.removeEventListener('keydown', this.handleKeyDown)
     },
 
     addObjectToPage(object, pageIndex = this.selectedPageIndex, docIndex = this.selectedDocIndex) {
@@ -611,19 +727,47 @@ export default {
       const pageRef = this.getPageComponent(docIndex, pageIndex)
       if (!pageRef) return false
 
+      let objectToAdd = object
+      if (!objectToAdd.id || this.objectIdExists(docIndex, objectToAdd.id)) {
+        objectToAdd = { ...objectToAdd, id: this.generateObjectId() }
+      }
+
       const pageWidth = this.getPageWidth(docIndex, pageIndex)
       const pageHeight = this.getPageHeight(docIndex, pageIndex)
 
-      if (object.x < 0 || object.y < 0 ||
-          object.x + object.width > pageWidth ||
-          object.y + object.height > pageHeight) {
+      if (objectToAdd.x < 0 || objectToAdd.y < 0 ||
+          objectToAdd.x + objectToAdd.width > pageWidth ||
+          objectToAdd.y + objectToAdd.height > pageHeight) {
         return false
       }
 
-      doc.allObjects = doc.allObjects.map((objects, pIndex) =>
-        pIndex === pageIndex ? [...objects, object] : objects,
-      )
+      doc.allObjects[pageIndex].push(objectToAdd)
+      this.objectIndexCache[`${docIndex}-${objectToAdd.id}`] = pageIndex
       return true
+    },
+    objectIdExists(docIndex, objectId) {
+      if (!objectId) return false
+      const cacheKey = `${docIndex}-${objectId}`
+      if (this.objectIndexCache[cacheKey] !== undefined) return true
+      const doc = this.pdfDocuments[docIndex]
+      if (!doc) return false
+      return doc.allObjects.some(objects => objects.some(obj => obj.id === objectId))
+    },
+    updateObjectInPage(docIndex, pageIndex, objectId, payload) {
+      const doc = this.pdfDocuments[docIndex]
+      const objects = doc?.allObjects?.[pageIndex]
+      if (!objects) return
+      const objectIndex = objects.findIndex(object => object.id === objectId)
+      if (objectIndex === -1) return
+      objects.splice(objectIndex, 1, { ...objects[objectIndex], ...payload })
+    },
+    removeObjectFromPage(docIndex, pageIndex, objectId) {
+      const doc = this.pdfDocuments[docIndex]
+      const objects = doc?.allObjects?.[pageIndex]
+      if (!objects) return
+      const objectIndex = objects.findIndex(object => object.id === objectId)
+      if (objectIndex === -1) return
+      objects.splice(objectIndex, 1)
     },
 
     getAllObjects(docIndex = this.selectedDocIndex) {
@@ -635,9 +779,9 @@ export default {
       doc.allObjects.forEach((pageObjects, pageIndex) => {
         const pageRef = this.getPageComponent(docIndex, pageIndex)
         if (!pageRef) return
-        const measurement = pageRef.getCanvasMeasurement()
+        const measurement = this.getCachedMeasurement(docIndex, pageIndex, pageRef)
+        const normalizedCanvasHeight = measurement.height
         const pagesScale = doc.pagesScale[pageIndex] || 1
-        const normalizedCanvasHeight = measurement.canvasHeight / pagesScale
 
         pageObjects.forEach(object => {
           result.push({
@@ -684,19 +828,18 @@ export default {
         const mouseX = payload._mouseX
         const mouseY = payload._mouseY
 
-        if (!this.pagesBoundingRects || Object.keys(this.pagesBoundingRects).length === 0) {
+        const pageBoundsMap = this.getPageBoundsMap()
+        if (!pageBoundsMap || Object.keys(pageBoundsMap).length === 0) {
           this.cachePageBounds()
         }
 
-        const currentPageRect = this.pagesBoundingRects[`${docIndex}-${currentPageIndex}`]?.rect
+        const currentPageRect = this.getPageBoundsMap()[`${docIndex}-${currentPageIndex}`]?.rect
         if (currentPageRect) {
           const pagesScale = this.getDisplayedPageScale(docIndex, currentPageIndex)
           const relX = (mouseX - currentPageRect.left - this.draggingElementShift.x) / pagesScale - (this.draggingInitialMouseOffset.x / pagesScale)
           const relY = (mouseY - currentPageRect.top - this.draggingElementShift.y) / pagesScale - (this.draggingInitialMouseOffset.y / pagesScale)
 
-          doc.allObjects[currentPageIndex] = doc.allObjects[currentPageIndex].map(obj =>
-            obj.id === objectId ? { ...obj, x: relX, y: relY } : obj
-          )
+          this.updateObjectInPage(docIndex, currentPageIndex, objectId, { x: relX, y: relY })
         }
         return
       }
@@ -706,6 +849,15 @@ export default {
         const newY = payload.y !== undefined ? payload.y : targetObject.y
         const objWidth = payload.width !== undefined ? payload.width : targetObject.width
         const objHeight = payload.height !== undefined ? payload.height : targetObject.height
+
+        const currentPageWidth = this.getPageWidth(docIndex, currentPageIndex)
+        const currentPageHeight = this.getPageHeight(docIndex, currentPageIndex)
+        if (newX >= 0 && newY >= 0 &&
+            newX + objWidth <= currentPageWidth &&
+            newY + objHeight <= currentPageHeight) {
+          this.updateObjectInPage(docIndex, currentPageIndex, objectId, payload)
+          return
+        }
 
         let bestPageIndex = currentPageIndex
         let maxVisibleArea = 0
@@ -735,9 +887,7 @@ export default {
           const adjustedX = Math.max(0, Math.min(newX, pageWidth - objWidth))
           const adjustedY = Math.max(0, Math.min(newY, pageHeight - objHeight))
 
-          doc.allObjects[currentPageIndex] = doc.allObjects[currentPageIndex].filter(
-            obj => obj.id !== objectId
-          )
+          this.removeObjectFromPage(docIndex, currentPageIndex, objectId)
           const updatedObject = {
             ...targetObject,
             ...payload,
@@ -759,9 +909,7 @@ export default {
         }
       }
 
-      doc.allObjects = doc.allObjects.map(objects =>
-        objects.map(object => (object.id === objectId ? { ...object, ...payload } : object)),
-      )
+      this.updateObjectInPage(docIndex, currentPageIndex, objectId, payload)
     },
 
     deleteObject(docIndex, objectId) {
@@ -770,16 +918,16 @@ export default {
       let deletedObject = null
       let deletedPageIndex = -1
 
-      doc.allObjects = doc.allObjects.map((objects, pageIndex) =>
-        objects.filter(object => {
-          if (object.id === objectId) {
-            deletedObject = object
-            deletedPageIndex = pageIndex
-            return false
-          }
-          return true
-        }),
-      )
+      doc.allObjects.some((objects, pageIndex) => {
+        const objectIndex = objects.findIndex(object => object.id === objectId)
+        if (objectIndex === -1) {
+          return false
+        }
+        deletedObject = objects[objectIndex]
+        deletedPageIndex = pageIndex
+        objects.splice(objectIndex, 1)
+        return true
+      })
       delete this.objectIndexCache[`${docIndex}-${objectId}`]
       if (deletedObject) {
         this.$emit('pdf-elements:delete-object', {
@@ -812,8 +960,9 @@ export default {
       if (!targetObject) return currentPageIndex
 
       let targetPageIndex = currentPageIndex
-      for (const key in this.pagesBoundingRects) {
-        const { docIndex: rectDocIndex, pageIndex, rect } = this.pagesBoundingRects[key]
+      const pageBoundsMap = this.getPageBoundsMap()
+      for (const key in pageBoundsMap) {
+        const { docIndex: rectDocIndex, pageIndex, rect } = pageBoundsMap[key]
         if (rectDocIndex === docIndex &&
             mouseX >= rect.left && mouseX <= rect.right &&
             mouseY >= rect.top && mouseY <= rect.bottom) {
@@ -822,7 +971,7 @@ export default {
         }
       }
 
-      const targetPageRect = this.pagesBoundingRects[`${docIndex}-${targetPageIndex}`]?.rect
+      const targetPageRect = this.getPageBoundsMap()[`${docIndex}-${targetPageIndex}`]?.rect
       if (!targetPageRect) return currentPageIndex
 
       const pagesScale = this.getDisplayedPageScale(docIndex, targetPageIndex)
@@ -836,9 +985,7 @@ export default {
       const clampedY = Math.max(0, Math.min(relY, pageHeight - targetObject.height))
 
       if (targetPageIndex !== currentPageIndex) {
-        doc.allObjects[currentPageIndex] = doc.allObjects[currentPageIndex].filter(
-          obj => obj.id !== objectId
-        )
+        this.removeObjectFromPage(docIndex, currentPageIndex, objectId)
         doc.allObjects[targetPageIndex].push({
           ...targetObject,
           x: clampedX,
@@ -846,9 +993,7 @@ export default {
         })
         this.objectIndexCache[cacheKey] = targetPageIndex
       } else if (clampedX !== targetObject.x || clampedY !== targetObject.y) {
-        doc.allObjects[currentPageIndex] = doc.allObjects[currentPageIndex].map(obj =>
-          obj.id === objectId ? { ...obj, x: clampedX, y: clampedY } : obj
-        )
+        this.updateObjectInPage(docIndex, currentPageIndex, objectId, { x: clampedX, y: clampedY })
       }
 
       return targetPageIndex
@@ -856,8 +1001,9 @@ export default {
 
     onMeasure(e, docIndex, pageIndex) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
-      this.pdfDocuments[docIndex].pagesScale[pageIndex] = e.scale
-      this.cachePageBounds()
+      this.pdfDocuments[docIndex].pagesScale.splice(pageIndex, 1, e.scale)
+      this._pageMeasurementCache[`${docIndex}-${pageIndex}`] = null
+      this.cachePageBoundsForPage(docIndex, pageIndex)
       if (this.autoFitZoom) {
         this.scheduleAutoFitZoom()
       }
@@ -871,16 +1017,30 @@ export default {
     getPageWidth(docIndex, pageIndex) {
       const pageRef = this.getPageComponent(docIndex, pageIndex)
       if (!pageRef) return 0
-      const doc = this.pdfDocuments[docIndex]
-      const pagesScale = doc.pagesScale[pageIndex] || 1
-      return pageRef.getCanvasMeasurement().canvasWidth / pagesScale
+      const measurement = this.getCachedMeasurement(docIndex, pageIndex, pageRef)
+      return measurement.width
     },
     getPageHeight(docIndex, pageIndex) {
       const pageRef = this.getPageComponent(docIndex, pageIndex)
       if (!pageRef) return 0
+      const measurement = this.getCachedMeasurement(docIndex, pageIndex, pageRef)
+      return measurement.height
+    },
+    getCachedMeasurement(docIndex, pageIndex, pageRef) {
+      const cacheKey = `${docIndex}-${pageIndex}`
+      const cached = this._pageMeasurementCache[cacheKey]
+      if (cached) {
+        return cached
+      }
       const doc = this.pdfDocuments[docIndex]
       const pagesScale = doc.pagesScale[pageIndex] || 1
-      return pageRef.getCanvasMeasurement().canvasHeight / pagesScale
+      const measurement = pageRef.getCanvasMeasurement()
+      const normalized = {
+        width: measurement.canvasWidth / pagesScale,
+        height: measurement.canvasHeight / pagesScale,
+      }
+      this._pageMeasurementCache[cacheKey] = normalized
+      return normalized
     },
     calculateOptimalScale(maxPageWidth) {
       const containerWidth = this.$el?.clientWidth || 0
@@ -927,6 +1087,7 @@ export default {
         this.pdfDocuments.forEach((doc) => {
           doc.pagesScale = doc.pagesScale.map(() => this.scale)
         })
+        this._pageMeasurementCache = {}
         this.cachePageBounds()
       }
     },
@@ -967,15 +1128,6 @@ export default {
   position: absolute;
   opacity: 0.7;
   pointer-events: none;
-}
-.drag-ghost {
-  position: fixed;
-  opacity: 0.9;
-  pointer-events: none;
-  z-index: 10000;
-  transform-origin: top left;
-  transition: none;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
 }
 .overlay {
   position: absolute;
