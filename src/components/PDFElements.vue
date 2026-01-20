@@ -8,7 +8,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     <div
       v-if="pdfDocuments.length"
       class="pages-container"
-      :style="{ transform: `scale(${visualScale / scale})`, transformOrigin: 'top center' }"
     >
       <div v-for="(pdfDoc, docIndex) in pdfDocuments" :key="docIndex">
         <div v-for="(page, pIndex) in pdfDoc.pages" :key="`${docIndex}-${pIndex}`" class="page-slot">
@@ -55,7 +54,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                   :key="object.id"
                   :ref="`draggable${docIndex}-${pIndex}-${object.id}`"
                   :object="object"
-                  :pages-scale="getRenderPageScale(docIndex, pIndex)"
+                  :pages-scale="getDisplayedPageScale(docIndex, pIndex)"
                   :page-width="getPageWidth(docIndex, pIndex)"
                   :page-height="getPageHeight(docIndex, pIndex)"
                   :read-only="readOnly"
@@ -136,7 +135,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 </template>
 
 <script>
-import debounce from 'debounce'
 import PDFPage from './PDFPage.vue'
 import DraggableElement from './DraggableElement.vue'
 import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader.js'
@@ -223,8 +221,8 @@ export default {
       viewportRafId: 0,
       objectIndexCache: {},
       zoomRafId: null,
+      wheelZoomRafId: null,
       boundHandleWheel: null,
-      debouncedApplyZoom: null,
       visualScale: this.initialScale,
       autoFitApplied: false,
       lastContainerWidth: 0,
@@ -232,7 +230,6 @@ export default {
   },
   mounted() {
     this.boundHandleWheel = this.handleWheel.bind(this)
-    this.debouncedApplyZoom = debounce(this.commitZoom, 150)
     this.init()
     document.addEventListener('mousemove', this.handleMouseMove)
     document.addEventListener('touchmove', this.handleMouseMove, { passive: true })
@@ -248,7 +245,10 @@ export default {
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId)
     }
-    this.debouncedApplyZoom?.clear?.()
+    if (this.wheelZoomRafId) {
+      cancelAnimationFrame(this.wheelZoomRafId)
+      this.wheelZoomRafId = null
+    }
     if (this.boundHandleWheel) {
       this.$el?.removeEventListener('wheel', this.boundHandleWheel)
     }
@@ -414,24 +414,35 @@ export default {
     },
 
     cachePageBounds() {
-      this.pagesBoundingRects = {}
+      const nextRects = {}
       for (let docIdx = 0; docIdx < this.pdfDocuments.length; docIdx++) {
         for (let pageIdx = 0; pageIdx < this.pdfDocuments[docIdx].pages.length; pageIdx++) {
           const canvas = this.getPageCanvasElement(docIdx, pageIdx)
           if (!canvas) continue
           const rect = canvas.getBoundingClientRect()
-          this.pagesBoundingRects[`${docIdx}-${pageIdx}`] = {
+          nextRects[`${docIdx}-${pageIdx}`] = {
             docIndex: docIdx,
             pageIndex: pageIdx,
             rect,
           }
         }
       }
+      this.pagesBoundingRects = nextRects
     },
 
     getDisplayedPageScale(docIndex, pageIndex) {
       const doc = this.pdfDocuments[docIndex]
       if (!doc) return 1
+      const baseWidth = doc.pageWidths?.[pageIndex] || 0
+      const rectWidth = this.pagesBoundingRects[`${docIndex}-${pageIndex}`]?.rect?.width || 0
+      if (rectWidth && baseWidth) {
+        return rectWidth / baseWidth
+      }
+      const canvas = this.getPageCanvasElement(docIndex, pageIndex)
+      const fallbackRectWidth = canvas?.getBoundingClientRect?.().width || 0
+      if (fallbackRectWidth && baseWidth) {
+        return fallbackRectWidth / baseWidth
+      }
       const base = doc.pagesScale[pageIndex] || 1
       const factor = this.visualScale && this.scale ? (this.visualScale / this.scale) : 1
       return base * factor
@@ -528,7 +539,11 @@ export default {
       const factor = 1 - (event.deltaY * 0.002)
       const nextVisual = Math.max(0.5, Math.min(3.0, this.visualScale * factor))
       this.visualScale = nextVisual
-      this.debouncedApplyZoom()
+      if (this.wheelZoomRafId) return
+      this.wheelZoomRafId = window.requestAnimationFrame(() => {
+        this.wheelZoomRafId = null
+        this.commitZoom()
+      })
     },
 
     commitZoom() {
