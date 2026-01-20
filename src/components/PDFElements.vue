@@ -138,6 +138,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 import PDFPage from './PDFPage.vue'
 import DraggableElement from './DraggableElement.vue'
 import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader.js'
+import { clampPosition, getVisibleArea } from '../utils/geometry.js'
+import { getViewportWindow, isPageInViewport } from '../utils/pageBounds.js'
+import { applyScaleToDocs } from '../utils/zoom.js'
+import { objectIdExistsInDoc, findObjectPageIndex, updateObjectInDoc, removeObjectFromDoc } from '../utils/objectStore.js'
+import { getCachedMeasurement } from '../utils/measurements.js'
 
 export default {
   name: 'PDFElements',
@@ -238,9 +243,11 @@ export default {
     }
   },
   created() {
-    this._pagesBoundingRects = {}
-    this._pagesBoundingRectsList = []
-    this._pageMeasurementCache = {}
+      this._pagesBoundingRects = {}
+      this._pagesBoundingRectsList = []
+      this._pageMeasurementCache = {}
+      this._lastPageBoundsScrollTop = 0
+      this._lastPageBoundsClientHeight = 0
   },
   mounted() {
     this.boundHandleWheel = this.handleWheel.bind(this)
@@ -436,8 +443,14 @@ export default {
       const container = this.$el
       const scrollTop = container?.scrollTop || 0
       const viewHeight = container?.clientHeight || 0
-      const minY = Math.max(0, scrollTop - 300)
-      const maxY = scrollTop + viewHeight + 300
+      if (!this.isAddingMode && !this.isDraggingElement &&
+        scrollTop === this._lastPageBoundsScrollTop &&
+        viewHeight === this._lastPageBoundsClientHeight) {
+        return
+      }
+      this._lastPageBoundsScrollTop = scrollTop
+      this._lastPageBoundsClientHeight = viewHeight
+      const { minY, maxY } = getViewportWindow(scrollTop, viewHeight)
       for (let docIdx = 0; docIdx < this.pdfDocuments.length; docIdx++) {
         for (let pageIdx = 0; pageIdx < this.pdfDocuments[docIdx].pages.length; pageIdx++) {
           const canvas = this.getPageCanvasElement(docIdx, pageIdx)
@@ -446,7 +459,7 @@ export default {
             const wrapper = canvas.closest('.page-wrapper') || canvas
             const offsetTop = wrapper.offsetTop || 0
             const offsetHeight = wrapper.offsetHeight || 0
-            if (offsetTop + offsetHeight < minY || offsetTop > maxY) {
+            if (!isPageInViewport(offsetTop, offsetHeight, minY, maxY)) {
               continue
             }
           }
@@ -657,9 +670,7 @@ export default {
 
       this.scale = newScale
 
-      this.pdfDocuments.forEach((doc) => {
-        doc.pagesScale = doc.pagesScale.map(() => this.scale)
-      })
+      applyScaleToDocs(this.pdfDocuments, this.scale)
 
       this._pageMeasurementCache = {}
       this.cachePageBounds()
@@ -765,24 +776,15 @@ export default {
       const cacheKey = `${docIndex}-${objectId}`
       if (this.objectIndexCache[cacheKey] !== undefined) return true
       const doc = this.pdfDocuments[docIndex]
-      if (!doc) return false
-      return doc.allObjects.some(objects => objects.some(obj => obj.id === objectId))
+      return objectIdExistsInDoc(doc, objectId)
     },
     updateObjectInPage(docIndex, pageIndex, objectId, payload) {
       const doc = this.pdfDocuments[docIndex]
-      const objects = doc?.allObjects?.[pageIndex]
-      if (!objects) return
-      const objectIndex = objects.findIndex(object => object.id === objectId)
-      if (objectIndex === -1) return
-      objects.splice(objectIndex, 1, { ...objects[objectIndex], ...payload })
+      updateObjectInDoc(doc, pageIndex, objectId, payload)
     },
     removeObjectFromPage(docIndex, pageIndex, objectId) {
       const doc = this.pdfDocuments[docIndex]
-      const objects = doc?.allObjects?.[pageIndex]
-      if (!objects) return
-      const objectIndex = objects.findIndex(object => object.id === objectId)
-      if (objectIndex === -1) return
-      objects.splice(objectIndex, 1)
+      removeObjectFromDoc(doc, pageIndex, objectId)
     },
 
     getAllObjects(docIndex = this.selectedDocIndex) {
@@ -826,12 +828,10 @@ export default {
       let currentPageIndex = this.objectIndexCache[cacheKey]
 
       if (currentPageIndex === undefined) {
-        doc.allObjects.forEach((objects, pIndex) => {
-          if (objects.find(o => o.id === objectId)) {
-            currentPageIndex = pIndex
-            this.objectIndexCache[cacheKey] = pIndex
-          }
-        })
+        currentPageIndex = findObjectPageIndex(doc, objectId)
+        if (currentPageIndex !== undefined) {
+          this.objectIndexCache[cacheKey] = currentPageIndex
+        }
       }
 
       if (currentPageIndex === undefined) return
@@ -880,7 +880,7 @@ export default {
           const pageWidth = this.getPageWidth(docIndex, pIndex)
           const pageHeight = this.getPageHeight(docIndex, pIndex)
 
-          const visibleArea = this.getVisibleArea(newX, newY, objWidth, objHeight, pageWidth, pageHeight)
+          const visibleArea = getVisibleArea(newX, newY, objWidth, objHeight, pageWidth, pageHeight)
           if (visibleArea > maxVisibleArea) {
             maxVisibleArea = visibleArea
             bestPageIndex = pIndex
@@ -889,7 +889,7 @@ export default {
 
         if (bestPageIndex !== currentPageIndex) {
           const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, bestPageIndex)
-          const { x: adjustedX, y: adjustedY } = this.clampPosition(newX, newY, objWidth, objHeight, pageWidth, pageHeight)
+          const { x: adjustedX, y: adjustedY } = clampPosition(newX, newY, objWidth, objHeight, pageWidth, pageHeight)
 
           this.removeObjectFromPage(docIndex, currentPageIndex, objectId)
           const updatedObject = {
@@ -949,12 +949,10 @@ export default {
       let currentPageIndex = this.objectIndexCache[cacheKey]
 
       if (currentPageIndex === undefined) {
-        doc.allObjects.forEach((objects, pIndex) => {
-          if (objects.find(o => o.id === objectId)) {
-            currentPageIndex = pIndex
-            this.objectIndexCache[cacheKey] = pIndex
-          }
-        })
+        currentPageIndex = findObjectPageIndex(doc, objectId)
+        if (currentPageIndex !== undefined) {
+          this.objectIndexCache[cacheKey] = currentPageIndex
+        }
       }
 
       if (currentPageIndex === undefined) return undefined
@@ -982,7 +980,7 @@ export default {
       const relY = (mouseY - targetPageRect.top - this.draggingElementShift.y) / pagesScale - (this.draggingInitialMouseOffset.y / pagesScale)
 
       const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, targetPageIndex)
-      const { x: clampedX, y: clampedY } = this.clampPosition(
+      const { x: clampedX, y: clampedY } = clampPosition(
         relX,
         relY,
         targetObject.width,
@@ -1039,37 +1037,11 @@ export default {
         height: this.getPageHeight(docIndex, pageIndex),
       }
     },
-    clampPosition(x, y, width, height, pageWidth, pageHeight) {
-      return {
-        x: Math.max(0, Math.min(x, pageWidth - width)),
-        y: Math.max(0, Math.min(y, pageHeight - height)),
-      }
-    },
-    getVisibleArea(newX, newY, objWidth, objHeight, pageWidth, pageHeight) {
-      const visibleLeft = Math.max(0, newX)
-      const visibleTop = Math.max(0, newY)
-      const visibleRight = Math.min(pageWidth, newX + objWidth)
-      const visibleBottom = Math.min(pageHeight, newY + objHeight)
-      if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
-        return 0
-      }
-      return (visibleRight - visibleLeft) * (visibleBottom - visibleTop)
-    },
     getCachedMeasurement(docIndex, pageIndex, pageRef) {
       const cacheKey = `${docIndex}-${pageIndex}`
-      const cached = this._pageMeasurementCache[cacheKey]
-      if (cached) {
-        return cached
-      }
       const doc = this.pdfDocuments[docIndex]
       const pagesScale = doc.pagesScale[pageIndex] || 1
-      const measurement = pageRef.getCanvasMeasurement()
-      const normalized = {
-        width: measurement.canvasWidth / pagesScale,
-        height: measurement.canvasHeight / pagesScale,
-      }
-      this._pageMeasurementCache[cacheKey] = normalized
-      return normalized
+      return getCachedMeasurement(this._pageMeasurementCache, cacheKey, pageRef, pagesScale)
     },
     calculateOptimalScale(maxPageWidth) {
       const containerWidth = this.$el?.clientWidth || 0
@@ -1113,9 +1085,7 @@ export default {
       if (Math.abs(optimalScale - this.scale) > 0.01) {
         this.scale = optimalScale
         this.visualScale = optimalScale
-        this.pdfDocuments.forEach((doc) => {
-          doc.pagesScale = doc.pagesScale.map(() => this.scale)
-        })
+        applyScaleToDocs(this.pdfDocuments, this.scale)
         this._pageMeasurementCache = {}
         this.cachePageBounds()
       }
