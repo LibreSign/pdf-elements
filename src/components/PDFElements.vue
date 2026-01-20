@@ -353,7 +353,7 @@ export default {
         : { x: 0, y: 0 }
 
       this.cachePageBounds()
-      const pageRect = this.getPageBoundsMap()[`${docIndex}-${pageIndex}`]?.rect
+      const pageRect = this.getPageRect(docIndex, pageIndex)
       if (pointerOffset && typeof pointerOffset.x === 'number' && typeof pointerOffset.y === 'number') {
         this.draggingInitialMouseOffset.x = pointerOffset.x
         this.draggingInitialMouseOffset.y = pointerOffset.y
@@ -483,6 +483,21 @@ export default {
     getPageBoundsList() {
       return this._pagesBoundingRectsList || []
     },
+    getPageRect(docIndex, pageIndex) {
+      return this.getPageBoundsMap()[`${docIndex}-${pageIndex}`]?.rect || null
+    },
+    getPointerPosition(event) {
+      if (event?.type?.includes?.('touch')) {
+        return {
+          x: event.touches?.[0]?.clientX,
+          y: event.touches?.[0]?.clientY,
+        }
+      }
+      return {
+        x: event?.clientX,
+        y: event?.clientY,
+      }
+    },
 
     getDisplayedPageScale(docIndex, pageIndex) {
       this.pageBoundsVersion
@@ -546,9 +561,9 @@ export default {
 
     handleMouseMove(event) {
       if (!this.isAddingMode || !this.previewElement) return
-      const clientX = event.type.includes('touch') ? event.touches[0].clientX : event.clientX
-      const clientY = event.type.includes('touch') ? event.touches[0].clientY : event.clientY
-      this.pendingHoverClientPos = { x: clientX, y: clientY }
+      const { x, y } = this.getPointerPosition(event)
+      if (x === undefined || y === undefined) return
+      this.pendingHoverClientPos = { x, y }
       if (this.hoverRafId) return
       this.hoverRafId = window.requestAnimationFrame(() => {
         this.hoverRafId = 0
@@ -833,7 +848,7 @@ export default {
           this.cachePageBounds()
         }
 
-        const currentPageRect = this.getPageBoundsMap()[`${docIndex}-${currentPageIndex}`]?.rect
+        const currentPageRect = this.getPageRect(docIndex, currentPageIndex)
         if (currentPageRect) {
           const pagesScale = this.getDisplayedPageScale(docIndex, currentPageIndex)
           const relX = (mouseX - currentPageRect.left - this.draggingElementShift.x) / pagesScale - (this.draggingInitialMouseOffset.x / pagesScale)
@@ -850,8 +865,7 @@ export default {
         const objWidth = payload.width !== undefined ? payload.width : targetObject.width
         const objHeight = payload.height !== undefined ? payload.height : targetObject.height
 
-        const currentPageWidth = this.getPageWidth(docIndex, currentPageIndex)
-        const currentPageHeight = this.getPageHeight(docIndex, currentPageIndex)
+        const { width: currentPageWidth, height: currentPageHeight } = this.getPageSize(docIndex, currentPageIndex)
         if (newX >= 0 && newY >= 0 &&
             newX + objWidth <= currentPageWidth &&
             newY + objHeight <= currentPageHeight) {
@@ -866,26 +880,16 @@ export default {
           const pageWidth = this.getPageWidth(docIndex, pIndex)
           const pageHeight = this.getPageHeight(docIndex, pIndex)
 
-          const visibleLeft = Math.max(0, newX)
-          const visibleTop = Math.max(0, newY)
-          const visibleRight = Math.min(pageWidth, newX + objWidth)
-          const visibleBottom = Math.min(pageHeight, newY + objHeight)
-
-          if (visibleRight > visibleLeft && visibleBottom > visibleTop) {
-            const visibleArea = (visibleRight - visibleLeft) * (visibleBottom - visibleTop)
-            if (visibleArea > maxVisibleArea) {
-              maxVisibleArea = visibleArea
-              bestPageIndex = pIndex
-            }
+          const visibleArea = this.getVisibleArea(newX, newY, objWidth, objHeight, pageWidth, pageHeight)
+          if (visibleArea > maxVisibleArea) {
+            maxVisibleArea = visibleArea
+            bestPageIndex = pIndex
           }
         }
 
         if (bestPageIndex !== currentPageIndex) {
-          const pageWidth = this.getPageWidth(docIndex, bestPageIndex)
-          const pageHeight = this.getPageHeight(docIndex, bestPageIndex)
-
-          const adjustedX = Math.max(0, Math.min(newX, pageWidth - objWidth))
-          const adjustedY = Math.max(0, Math.min(newY, pageHeight - objHeight))
+          const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, bestPageIndex)
+          const { x: adjustedX, y: adjustedY } = this.clampPosition(newX, newY, objWidth, objHeight, pageWidth, pageHeight)
 
           this.removeObjectFromPage(docIndex, currentPageIndex, objectId)
           const updatedObject = {
@@ -899,8 +903,7 @@ export default {
           return
         }
 
-        const pageWidth = this.getPageWidth(docIndex, currentPageIndex)
-        const pageHeight = this.getPageHeight(docIndex, currentPageIndex)
+        const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, currentPageIndex)
 
         if (newX < 0 || newY < 0 ||
             newX + objWidth > pageWidth ||
@@ -971,18 +974,22 @@ export default {
         }
       }
 
-      const targetPageRect = this.getPageBoundsMap()[`${docIndex}-${targetPageIndex}`]?.rect
+      const targetPageRect = this.getPageRect(docIndex, targetPageIndex)
       if (!targetPageRect) return currentPageIndex
 
       const pagesScale = this.getDisplayedPageScale(docIndex, targetPageIndex)
       const relX = (mouseX - targetPageRect.left - this.draggingElementShift.x) / pagesScale - (this.draggingInitialMouseOffset.x / pagesScale)
       const relY = (mouseY - targetPageRect.top - this.draggingElementShift.y) / pagesScale - (this.draggingInitialMouseOffset.y / pagesScale)
 
-      const pageWidth = this.getPageWidth(docIndex, targetPageIndex)
-      const pageHeight = this.getPageHeight(docIndex, targetPageIndex)
-
-      const clampedX = Math.max(0, Math.min(relX, pageWidth - targetObject.width))
-      const clampedY = Math.max(0, Math.min(relY, pageHeight - targetObject.height))
+      const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, targetPageIndex)
+      const { x: clampedX, y: clampedY } = this.clampPosition(
+        relX,
+        relY,
+        targetObject.width,
+        targetObject.height,
+        pageWidth,
+        pageHeight,
+      )
 
       if (targetPageIndex !== currentPageIndex) {
         this.removeObjectFromPage(docIndex, currentPageIndex, objectId)
@@ -1025,6 +1032,28 @@ export default {
       if (!pageRef) return 0
       const measurement = this.getCachedMeasurement(docIndex, pageIndex, pageRef)
       return measurement.height
+    },
+    getPageSize(docIndex, pageIndex) {
+      return {
+        width: this.getPageWidth(docIndex, pageIndex),
+        height: this.getPageHeight(docIndex, pageIndex),
+      }
+    },
+    clampPosition(x, y, width, height, pageWidth, pageHeight) {
+      return {
+        x: Math.max(0, Math.min(x, pageWidth - width)),
+        y: Math.max(0, Math.min(y, pageHeight - height)),
+      }
+    },
+    getVisibleArea(newX, newY, objWidth, objHeight, pageWidth, pageHeight) {
+      const visibleLeft = Math.max(0, newX)
+      const visibleTop = Math.max(0, newY)
+      const visibleRight = Math.min(pageWidth, newX + objWidth)
+      const visibleBottom = Math.min(pageHeight, newY + objHeight)
+      if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
+        return 0
+      }
+      return (visibleRight - visibleLeft) * (visibleBottom - visibleTop)
     },
     getCachedMeasurement(docIndex, pageIndex, pageRef) {
       const cacheKey = `${docIndex}-${pageIndex}`
