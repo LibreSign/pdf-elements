@@ -25,6 +25,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 class="overlay"
                 @mousemove="handleMouseMove"
                 @touchmove="handleMouseMove"
+                @click="handleOverlayClick(docIndex, pIndex, $event)"
+                @touchend="handleOverlayClick(docIndex, pIndex, $event)"
               >
                 <div
                   v-if="isAddingMode && previewPageDocIndex === docIndex && previewPageIndex === pIndex && previewElement && previewVisible"
@@ -191,6 +193,10 @@ export default {
       default: true,
     },
     readOnly: {
+      type: Boolean,
+      default: false,
+    },
+    emitObjectClick: {
       type: Boolean,
       default: false,
     },
@@ -649,6 +655,48 @@ export default {
         this.previewPosition.x = x
         this.previewPosition.y = y
         this.previewVisible = true
+      })
+    },
+    handleOverlayClick(docIndex, pageIndex, event) {
+      if (!this.emitObjectClick) return
+
+      const { x: clientX, y: clientY } = this.getPointerPosition(event)
+      if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return
+
+      this.cachePageBoundsForPage(docIndex, pageIndex)
+      const pageRect = this.getPageRect(docIndex, pageIndex)
+      if (!pageRect) return
+
+      const pagesScale = this.getDisplayedPageScale(docIndex, pageIndex) || 1
+      const relX = (clientX - pageRect.left) / pagesScale
+      const relY = (clientY - pageRect.top) / pagesScale
+
+      const doc = this.pdfDocuments?.[docIndex]
+      const pageObjects = doc?.allObjects?.[pageIndex] || []
+      let hitObject = null
+
+      for (let i = pageObjects.length - 1; i >= 0; i--) {
+        const object = pageObjects[i]
+        const x = Number(object.x)
+        const y = Number(object.y)
+        const width = Number(object.width)
+        const height = Number(object.height)
+        if (![x, y, width, height].every(Number.isFinite)) {
+          continue
+        }
+        if (relX >= x && relX <= x + width && relY >= y && relY <= y + height) {
+          hitObject = object
+          break
+        }
+      }
+
+      if (!hitObject) return
+
+      this.$emit('pdf-elements:object-click', {
+        docIndex,
+        pageIndex,
+        object: hitObject,
+        event,
       })
     },
 
