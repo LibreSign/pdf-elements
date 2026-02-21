@@ -51,8 +51,10 @@
   </div>
 </template>
 
-<script>
-export default {
+<script lang="ts">
+import { defineComponent } from 'vue'
+
+export default defineComponent({
   name: 'ElementsViewer',
   props: {
     isOpen: {
@@ -100,7 +102,7 @@ export default {
       this.$emit('close')
     },
   },
-}
+})
 </script>
 
 <style scoped>

@@ -7,12 +7,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   <canvas ref="canvas" />
 </template>
 
-<script>
-export default {
+<script lang="ts">
+import { defineComponent, type PropType } from 'vue'
+
+export default defineComponent({
   name: 'PDFPage',
+  emits: ['onMeasure'],
   props: {
     page: {
-      type: Promise,
+      type: Object as PropType<Promise<unknown>>,
       required: true,
     },
     scale: {
@@ -25,7 +28,7 @@ export default {
       dynamicScale: this.scale,
       isRendering: false,
       pendingRender: false,
-      renderTask: null,
+      renderTask: null as { cancel: () => void; promise: Promise<void> } | null,
     }
   },
   watch: {
@@ -41,7 +44,7 @@ export default {
     if (this.renderTask) {
       try {
         this.renderTask.cancel()
-      } catch (e) {
+      } catch {
         // Ignore render cancellation errors.
       }
       this.renderTask = null
@@ -73,12 +76,13 @@ export default {
         if (this.renderTask) {
           try {
             this.renderTask.cancel()
-          } catch (e) {
+          } catch {
             // Ignore render cancellation errors.
           }
           this.renderTask = null
         }
         const context = canvas.getContext('2d')
+        if (!context) return
         const viewport = _page.getViewport({
           scale: this.dynamicScale,
         })
@@ -100,7 +104,7 @@ export default {
       }
     },
   },
-}
+})
 </script>
 
 <style scoped>

@@ -52,7 +52,7 @@ jobs:
         run: npm run lint
 
       - name: Build library
-        run: npm run build:lib
+        run: npm run build
 
       - name: Check build changes
         run: |

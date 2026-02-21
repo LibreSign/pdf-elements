@@ -31,8 +31,10 @@
   </header>
 </template>
 
-<script>
-export default {
+<script lang="ts">
+import { defineComponent } from 'vue'
+
+export default defineComponent({
   name: 'AppToolbar',
   props: {
     loading: {
@@ -48,7 +50,7 @@ export default {
       default: false,
     },
   },
-}
+})
 </script>
 
 <style scoped>
