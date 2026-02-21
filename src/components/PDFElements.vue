@@ -139,18 +139,21 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   </div>
 </template>
 
-<script>
+<script lang="ts">
+import { defineComponent, type PropType, markRaw } from 'vue'
 import PDFPage from './PDFPage.vue'
 import DraggableElement from './DraggableElement.vue'
-import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader.js'
-import { clampPosition, getVisibleArea } from '../utils/geometry.js'
-import { getViewportWindow, isPageInViewport } from '../utils/pageBounds.js'
-import { applyScaleToDocs } from '../utils/zoom.js'
-import { objectIdExistsInDoc, findObjectPageIndex, updateObjectInDoc, removeObjectFromDoc } from '../utils/objectStore.js'
-import { getCachedMeasurement } from '../utils/measurements.js'
+import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader'
+import { clampPosition, getVisibleArea } from '../utils/geometry'
+import { getViewportWindow, isPageInViewport } from '../utils/pageBounds'
+import { applyScaleToDocs } from '../utils/zoom'
+import { objectIdExistsInDoc, findObjectPageIndex, updateObjectInDoc, removeObjectFromDoc } from '../utils/objectStore'
+import { getCachedMeasurement } from '../utils/measurements'
+import type { PDFDocumentEntry, PDFElementObject } from '../types'
 
-export default {
+export default defineComponent({
   name: 'PDFElements',
+  emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click'],
   components: {
     PDFPage,
     DraggableElement,
@@ -165,11 +168,13 @@ export default {
       default: '100%',
     },
     initFiles: {
-      type: Array,
+      type: Array as PropType<
+        (string | Blob | ArrayBuffer | ArrayBufferView | Record<string, unknown>)[]
+      >,
       default: () => [],
     },
     initFileNames: {
-      type: Array,
+      type: Array as PropType<string[]>,
       default: () => [],
     },
     initialScale: {
@@ -201,7 +206,7 @@ export default {
       default: false,
     },
     ignoreClickOutsideSelectors: {
-      type: Array,
+      type: Array as PropType<string[]>,
       default: () => [],
     },
     pageCountFormat: {
@@ -212,32 +217,36 @@ export default {
       type: Boolean,
       default: false,
     },
+    pdfjsOptions: {
+      type: Object as PropType<Record<string, unknown>>,
+      default: () => ({}),
+    },
   },
   data() {
     return {
       scale: this.initialScale,
-      pdfDocuments: [],
+      pdfDocuments: [] as PDFDocumentEntry[],
       selectedDocIndex: -1,
       selectedPageIndex: -1,
       isAddingMode: false,
-      previewElement: null,
+      previewElement: null as PDFElementObject | null,
       previewPosition: { x: 0, y: 0 },
       previewScale: { x: 1, y: 1 },
       previewPageDocIndex: -1,
       previewPageIndex: -1,
       previewVisible: false,
       hoverRafId: 0,
-      pendingHoverClientPos: null,
-      lastHoverRect: null,
+      pendingHoverClientPos: null as { x: number; y: number } | null,
+      lastHoverRect: null as DOMRect | null,
       addingListenersAttached: false,
       dragRafId: 0,
-      pendingDragClientPos: null,
+      pendingDragClientPos: null as { x: number; y: number } | null,
       pageBoundsVersion: 0,
       lastScrollTop: 0,
       lastClientWidth: 0,
       nextObjectCounter: 0,
       isDraggingElement: false,
-      draggingObject: null,
+      draggingObject: null as PDFElementObject | null,
       draggingDocIndex: -1,
       draggingPageIndex: -1,
       draggingClientPosition: { x: 0, y: 0 },
@@ -246,21 +255,19 @@ export default {
       draggingElementShift: { x: 0, y: 0 },
       lastMouseClientPos: { x: 0, y: 0 },
       viewportRafId: 0,
-      objectIndexCache: {},
-      zoomRafId: null,
-      wheelZoomRafId: null,
-      boundHandleWheel: null,
+      objectIndexCache: markRaw({}) as Record<string, number>,
+      zoomRafId: null as number | null,
+      wheelZoomRafId: null as number | null,
+      boundHandleWheel: null as ((event: WheelEvent) => void) | null,
       visualScale: this.initialScale,
       autoFitApplied: false,
       lastContainerWidth: 0,
+      _pagesBoundingRects: markRaw({}) as Record<string, { docIndex: number; pageIndex: number; rect: DOMRect }>,
+      _pagesBoundingRectsList: markRaw([]) as { docIndex: number; pageIndex: number; rect: DOMRect }[],
+      _pageMeasurementCache: markRaw({}) as Record<string, { width: number; height: number }>,
+      _lastPageBoundsScrollTop: 0,
+      _lastPageBoundsClientHeight: 0,
     }
-  },
-  created() {
-      this._pagesBoundingRects = {}
-      this._pagesBoundingRectsList = []
-      this._pageMeasurementCache = {}
-      this._lastPageBoundsScrollTop = 0
-      this._lastPageBoundsClientHeight = 0
   },
   mounted() {
     this.boundHandleWheel = this.handleWheel.bind(this)
@@ -301,7 +308,7 @@ export default {
   methods: {
     async init() {
       if (!this.initFiles || this.initFiles.length === 0) return
-      const docs = []
+      const docs: PDFDocumentEntry[] = []
       this.autoFitApplied = false
 
       for (let i = 0; i < this.initFiles.length; i++) {
@@ -311,9 +318,9 @@ export default {
         let pdfDoc
         if (file instanceof Blob) {
           const buffer = await readAsArrayBuffer(file)
-          pdfDoc = await readAsPDF({ data: buffer })
+          pdfDoc = await readAsPDF({ data: buffer }, this.pdfjsOptions)
         } else {
-          pdfDoc = await readAsPDF(file)
+          pdfDoc = await readAsPDF(file, this.pdfjsOptions)
         }
 
         const pages = []
@@ -329,12 +336,14 @@ export default {
           pages.push(pagePromise)
         }
 
+        const rawPages = markRaw(pages)
+
         docs.push({
           name,
           file,
-          pdfDoc,
+          pdfDoc: markRaw(pdfDoc),
           numPages: pdfDoc.numPages,
-          pages,
+          pages: rawPages,
           pageWidths,
           pagesScale: Array(pdfDoc.numPages).fill(this.scale),
           allObjects: Array(pdfDoc.numPages).fill(0).map(() => []),
@@ -342,7 +351,7 @@ export default {
       }
 
       this.pdfDocuments = docs
-      this._pageMeasurementCache = {}
+      this._pageMeasurementCache = markRaw({})
       if (docs.length) {
         this.selectedDocIndex = 0
         this.selectedPageIndex = 0
@@ -394,7 +403,12 @@ export default {
     updateDraggingPosition(clientX, clientY) {
       if (!this.isDraggingElement) return
 
-      this.pendingDragClientPos = { x: clientX, y: clientY }
+      if (this.pendingDragClientPos) {
+        this.pendingDragClientPos.x = clientX
+        this.pendingDragClientPos.y = clientY
+      } else {
+        this.pendingDragClientPos = { x: clientX, y: clientY }
+      }
       if (this.dragRafId) return
       this.dragRafId = window.requestAnimationFrame(() => {
         this.dragRafId = 0
@@ -453,6 +467,7 @@ export default {
 
     cachePageBounds() {
       const nextRects = {}
+      const nextList = []
       const container = this.$el
       const scrollTop = container?.scrollTop || 0
       const viewHeight = container?.clientHeight || 0
@@ -477,22 +492,24 @@ export default {
             }
           }
           const rect = canvas.getBoundingClientRect()
-          nextRects[`${docIdx}-${pageIdx}`] = {
+          const entry = {
             docIndex: docIdx,
             pageIndex: pageIdx,
             rect,
           }
+          nextRects[`${docIdx}-${pageIdx}`] = entry
+          nextList.push(entry)
         }
       }
-      this._pagesBoundingRects = nextRects
-      this._pagesBoundingRectsList = Object.values(nextRects)
+      this._pagesBoundingRects = markRaw(nextRects)
+      this._pagesBoundingRectsList = markRaw(nextList)
       this.pageBoundsVersion++
     },
     cachePageBoundsForPage(docIndex, pageIndex) {
       const canvas = this.getPageCanvasElement(docIndex, pageIndex)
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
-      this._pagesBoundingRects = {
+      const nextRects = {
         ...this._pagesBoundingRects,
         [`${docIndex}-${pageIndex}`]: {
           docIndex,
@@ -500,7 +517,8 @@ export default {
           rect,
         },
       }
-      this._pagesBoundingRectsList = Object.values(this._pagesBoundingRects)
+      this._pagesBoundingRects = markRaw(nextRects)
+      this._pagesBoundingRectsList = markRaw(Object.values(nextRects))
       this.pageBoundsVersion++
     },
     getPageBoundsMap() {
@@ -589,7 +607,12 @@ export default {
       if (!this.isAddingMode || !this.previewElement) return
       const { x, y } = this.getPointerPosition(event)
       if (x === undefined || y === undefined) return
-      this.pendingHoverClientPos = { x, y }
+      if (this.pendingHoverClientPos) {
+        this.pendingHoverClientPos.x = x
+        this.pendingHoverClientPos.y = y
+      } else {
+        this.pendingHoverClientPos = { x, y }
+      }
       if (this.hoverRafId) return
       this.hoverRafId = window.requestAnimationFrame(() => {
         this.hoverRafId = 0
@@ -609,11 +632,11 @@ export default {
             rect: this.lastHoverRect,
           }
         } else {
-          const rects = this.getPageBoundsList().length
+          const rectEntries = this.getPageBoundsList().length
             ? this.getPageBoundsList()
             : Object.values(this.getPageBoundsMap())
-          for (let i = 0; i < rects.length; i++) {
-            const entry = rects[i]
+          for (let i = 0; i < rectEntries.length; i++) {
+            const entry = rectEntries[i]
             const rect = entry.rect
             if (cursorX >= rect.left && cursorX <= rect.right &&
                 cursorY >= rect.top && cursorY <= rect.bottom) {
@@ -673,6 +696,7 @@ export default {
 
       const doc = this.pdfDocuments?.[docIndex]
       const pageObjects = doc?.allObjects?.[pageIndex] || []
+      if (pageObjects.length === 0) return
       let hitObject = null
 
       for (let i = pageObjects.length - 1; i >= 0; i--) {
@@ -727,7 +751,7 @@ export default {
 
       applyScaleToDocs(this.pdfDocuments, this.scale)
 
-      this._pageMeasurementCache = {}
+      this._pageMeasurementCache = markRaw({})
       this.cachePageBounds()
     },
 
@@ -794,7 +818,7 @@ export default {
       if (!this.addingListenersAttached) return
       this.addingListenersAttached = false
       document.removeEventListener('mousemove', this.handleMouseMove)
-      document.removeEventListener('touchmove', this.handleMouseMove, { passive: true })
+      document.removeEventListener('touchmove', this.handleMouseMove)
       document.removeEventListener('mouseup', this.finishAdding)
       document.removeEventListener('touchend', this.finishAdding)
       document.removeEventListener('keydown', this.handleKeyDown)
@@ -813,8 +837,9 @@ export default {
         objectToAdd = { ...objectToAdd, id: this.generateObjectId() }
       }
 
-      const pageWidth = this.getPageWidth(docIndex, pageIndex)
-      const pageHeight = this.getPageHeight(docIndex, pageIndex)
+      const measurement = this.getCachedMeasurement(docIndex, pageIndex, pageRef)
+      const pageWidth = measurement.width
+      const pageHeight = measurement.height
 
       if (objectToAdd.x < 0 || objectToAdd.y < 0 ||
           objectToAdd.x + objectToAdd.width > pageWidth ||
@@ -862,11 +887,11 @@ export default {
             pageNumber: pageIndex + 1,
             scale: pagesScale,
             normalizedCoordinates: {
-              llx: parseInt(object.x, 10),
-              lly: parseInt(normalizedCanvasHeight - object.y, 10),
-              ury: parseInt(normalizedCanvasHeight - object.y - object.height, 10),
-              width: parseInt(object.width, 10),
-              height: parseInt(object.height, 10),
+              llx: Math.round(object.x),
+              lly: Math.round(normalizedCanvasHeight - object.y),
+              ury: Math.round(normalizedCanvasHeight - object.y - object.height),
+              width: Math.round(object.width),
+              height: Math.round(object.height),
             },
           })
         })
@@ -1074,9 +1099,11 @@ export default {
       if (!targetObject) return currentPageIndex
 
       let targetPageIndex = currentPageIndex
+      const pageBoundsList = this.getPageBoundsList()
       const pageBoundsMap = this.getPageBoundsMap()
-      for (const key in pageBoundsMap) {
-        const { docIndex: rectDocIndex, pageIndex, rect } = pageBoundsMap[key]
+      const boundsEntries = pageBoundsList.length ? pageBoundsList : Object.values(pageBoundsMap)
+      for (let i = 0; i < boundsEntries.length; i++) {
+        const { docIndex: rectDocIndex, pageIndex, rect } = boundsEntries[i]
         if (rectDocIndex === docIndex &&
             mouseX >= rect.left && mouseX <= rect.right &&
             mouseY >= rect.top && mouseY <= rect.bottom) {
@@ -1186,7 +1213,7 @@ export default {
           this.scheduleAutoFitZoom()
           return
         }
-        const canvases = this.$el?.querySelectorAll('canvas')
+        const canvases = this.$el?.querySelectorAll('canvas') as NodeListOf<HTMLCanvasElement> | undefined
         if (!canvases?.length) return
         maxCanvasWidth = Math.max(...Array.from(canvases).map(canvas =>
           canvas.width / (this.scale || 1),
@@ -1199,12 +1226,12 @@ export default {
         this.scale = optimalScale
         this.visualScale = optimalScale
         applyScaleToDocs(this.pdfDocuments, this.scale)
-        this._pageMeasurementCache = {}
+        this._pageMeasurementCache = markRaw({})
         this.cachePageBounds()
       }
     },
   },
-}
+})
 </script>
 
 <style scoped>

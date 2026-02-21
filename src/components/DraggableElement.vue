@@ -54,12 +54,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   </div>
 </template>
 
-<script>
-export default {
+<script lang="ts">
+import { defineComponent, type PropType, type CSSProperties } from 'vue'
+import type { PDFElementObject } from '../types'
+
+export default defineComponent({
   name: 'DraggableElement',
   props: {
     object: {
-      type: Object,
+      type: Object as PropType<PDFElementObject>,
       required: true,
     },
     pagesScale: {
@@ -75,27 +78,27 @@ export default {
       required: true,
     },
     onUpdate: {
-      type: Function,
+      type: Function as PropType<(...args: any[]) => void>,
       default: () => {},
     },
     onDelete: {
-      type: Function,
+      type: Function as PropType<(...args: any[]) => void>,
       default: () => {},
     },
     onDuplicate: {
-      type: Function,
+      type: Function as PropType<(...args: any[]) => void>,
       default: () => {},
     },
     onDragStart: {
-      type: Function,
+      type: Function as PropType<(...args: any[]) => void>,
       default: () => {},
     },
     onDragMove: {
-      type: Function,
+      type: Function as PropType<(...args: any[]) => void>,
       default: () => {},
     },
     onDragEnd: {
-      type: Function,
+      type: Function as PropType<(...args: any[]) => void>,
       default: () => {},
     },
     isBeingDraggedGlobally: {
@@ -103,7 +106,7 @@ export default {
       default: false,
     },
     draggingClientPos: {
-      type: Object,
+      type: Object as PropType<{ x: number; y: number }>,
       default: () => ({ x: 0, y: 0 }),
     },
     currentDocIndex: {
@@ -135,7 +138,7 @@ export default {
       default: false,
     },
     ignoreClickOutsideSelectors: {
-      type: Array,
+      type: Array as PropType<string[]>,
       default: () => [],
     },
   },
@@ -188,7 +191,7 @@ export default {
         width: `${currentWidth * scale}px`,
         height: `${currentHeight * scale}px`,
         pointerEvents: this.readOnly ? 'none' : 'auto',
-      }
+      } as CSSProperties
     },
     toolbarStyle() {
       const scale = this.pagesScale || 1
@@ -209,7 +212,7 @@ export default {
         left: `${(x + width / 2) * scale}px`,
         top: `${top * scale}px`,
         transform: 'translateX(-50%)',
-      }
+      } as CSSProperties
     },
     dragElementStyle() {
       if (!this.isBeingDraggedGlobally || !this.draggingClientPos) {
@@ -218,7 +221,7 @@ export default {
       return {
         opacity: 0,
         pointerEvents: 'none',
-      }
+      } as CSSProperties
     },
   },
   mounted() {
@@ -476,7 +479,7 @@ export default {
       this.currentPageRect = null
     },
   },
-}
+})
 </script>
 
 <style scoped>
