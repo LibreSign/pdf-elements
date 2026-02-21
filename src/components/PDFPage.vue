@@ -28,7 +28,7 @@ export default defineComponent({
       dynamicScale: this.scale,
       isRendering: false,
       pendingRender: false,
-      renderTask: null as any,
+      renderTask: null as { cancel: () => void; promise: Promise<void> } | null,
     }
   },
   watch: {
@@ -44,7 +44,7 @@ export default defineComponent({
     if (this.renderTask) {
       try {
         this.renderTask.cancel()
-      } catch (e) {
+      } catch {
         // Ignore render cancellation errors.
       }
       this.renderTask = null
@@ -76,7 +76,7 @@ export default defineComponent({
         if (this.renderTask) {
           try {
             this.renderTask.cancel()
-          } catch (e) {
+          } catch {
             // Ignore render cancellation errors.
           }
           this.renderTask = null

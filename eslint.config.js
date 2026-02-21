@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 const js = require('@eslint/js')
+const globals = require('globals')
 const vue = require('eslint-plugin-vue')
 const tsPlugin = require('@typescript-eslint/eslint-plugin')
 const tsParser = require('@typescript-eslint/parser')
@@ -22,17 +23,21 @@ const vitestGlobals = {
 
 module.exports = [
   {
-    ignores: ['dist/**', 'dist-demo/**', 'node_modules/**'],
+    ignores: ['dist/**', 'dist-demo/**', 'node_modules/**', '.eslintrc.js'],
   },
   js.configs.recommended,
   {
-    files: ['**/*.{js,ts,vue}'],
+    files: ['**/*.{ts,vue}'],
     languageOptions: {
       parser: vueParser,
       parserOptions: {
         parser: tsParser,
         ecmaVersion: 2021,
         sourceType: 'module',
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.es2021,
       },
     },
     plugins: {
@@ -42,8 +47,32 @@ module.exports = [
     rules: {
       ...vue.configs['flat/essential'].rules,
       ...tsPlugin.configs.recommended.rules,
+      'no-undef': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
       'no-console': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
       'no-debugger': process.env.NODE_ENV === 'production' ? 'warn' : 'off',
+    },
+  },
+  {
+    files: ['eslint.config.js', '**/*.config.js', '**/*.config.cjs', 'postcss.config.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.es2021,
+      },
+      sourceType: 'script',
+    },
+    rules: {
+      'no-undef': 'off',
+    },
+  },
+  {
+    files: ['vite.config.ts', 'vitest.config.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.es2021,
+      },
     },
   },
   {
@@ -52,7 +81,11 @@ module.exports = [
       vitest,
     },
     languageOptions: {
-      globals: vitestGlobals,
+      globals: {
+        ...globals.browser,
+        ...globals.es2021,
+        ...vitestGlobals,
+      },
     },
     rules: {
       ...(vitest.configs?.recommended?.rules || {}),

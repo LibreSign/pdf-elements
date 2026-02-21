@@ -53,7 +53,7 @@ const makeWrapper = () => {
 
 describe('PDFElements business rules', () => {
   it('adds object to page with generated id', () => {
-    const { wrapper, ctx } = makeWrapper()
+    const { ctx } = makeWrapper()
     const doc = makeDoc()
     ctx.pdfDocuments = [doc]
     ctx.selectedDocIndex = 0

@@ -544,7 +544,7 @@ export default defineComponent({
     },
 
     getDisplayedPageScale(docIndex, pageIndex) {
-      this.pageBoundsVersion
+      void this.pageBoundsVersion
       const doc = this.pdfDocuments[docIndex]
       if (!doc) return 1
       const baseWidth = doc.pageWidths?.[pageIndex] || 0
