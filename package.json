@@ -69,6 +69,11 @@
   "browserslist": [
     "extends @nextcloud/browserslist-config"
   ],
+  "overrides": {
+    "eslint-plugin-vitest": {
+      "@typescript-eslint/utils": "^8.56.0"
+    }
+  },
   "files": [
     "dist",
     "src",
