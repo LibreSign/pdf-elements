@@ -5,9 +5,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # PDF Elements
 
-A Vue 2 component for rendering PDFs with draggable and resizable element overlays.
+A Vue 3 component for rendering PDFs with draggable and resizable element overlays.
 
 **[Demo](https://libresign.github.io/pdf-elements/)** · [Examples](examples/)
+
+## Development
+
+- `npm run dev` - Run the demo with Vite
+- `npm run build` - Build the library (ESM + types)
+- `npm run build:demo` - Build the demo to `dist-demo`
 
 ## API
 
@@ -28,6 +34,23 @@ A Vue 2 component for rendering PDFs with draggable and resizable element overla
 | `ignoreClickOutsideSelectors` | Array | `[]` | CSS selectors that keep the selection active when clicking outside the element |
 | `pageCountFormat` | String | `'{currentPage} of {totalPages}'` | Format string for page counter |
 | `autoFitZoom` | Boolean | `false` | Automatically adjust zoom to fit viewport on window resize |
+| `pdfjsOptions` | Object | `{}` | Options passed to PDF.js `getDocument` (advanced) |
+
+### PDF.js options
+
+`pdfjsOptions` is forwarded to PDF.js `getDocument(...)` and can be used to tune performance.
+
+Example:
+
+```ts
+<PDFElements
+	:pdfjs-options="{
+		disableFontFace: true,
+		disableRange: true,
+		disableStream: true,
+	}"
+/>
+```
 
 ### Events
 
