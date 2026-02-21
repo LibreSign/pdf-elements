@@ -12,11 +12,15 @@ default-copyright = "2025 LibreCode coop and contributors"
 path = [
     ".babelrc",
     ".eslintrc.js",
+    "env.d.ts",
     "package.json",
     "package-lock.json",
     "postcss.config.js",
-    "vue.config.js",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vitest.config.ts",
     "examples/**",
+    "tests/**",
     "dist/**",
 ]
 precedence = "aggregate"

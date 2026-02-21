@@ -4,12 +4,16 @@
 # Source files
 src/
 examples/
+tests/
 
 # Config files
 .babelrc
 .eslintrc.js
-vue.config.js
+env.d.ts
 postcss.config.js
+tsconfig.json
+vite.config.ts
+vitest.config.ts
 REUSE.toml
 LICENSES/
 CONTRIBUTING.md
