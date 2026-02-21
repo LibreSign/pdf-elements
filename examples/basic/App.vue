@@ -56,8 +56,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   </div>
 </template>
 
-<script>
-import Vue from 'vue'
+<script lang="ts">
+import { defineComponent } from 'vue'
 import PDFElements from '../../src'
 import AppToolbar from './components/AppToolbar.vue'
 import DocumentsList from './components/DocumentsList.vue'
@@ -65,7 +65,7 @@ import SignatureBox from './components/SignatureBox.vue'
 import DeleteButton from './components/DeleteButton.vue'
 import ElementsViewer from './components/ElementsViewer.vue'
 
-export default {
+export default defineComponent({
   name: 'App',
   components: {
     PDFElements,
@@ -110,15 +110,18 @@ export default {
     },
 
     onFilesChange(event) {
-      const files = Array.from(event.target.files || [])
+      const input = event?.target as HTMLInputElement | null
+      const files = Array.from(input?.files || [])
       if (files.length === 0) return
 
       this.loading = true
       this.pdfReady = false
       this.initFiles = [...this.initFiles, ...files]
-      this.fileNames = [...this.fileNames, ...files.map(f => f.name)]
+      this.fileNames = [...this.fileNames, ...files.map((file: File) => file.name)]
       this.forceRenderDocuments()
-      event.target.value = ''
+      if (input) {
+        input.value = ''
+      }
     },
 
     removeDocument(index) {
@@ -192,9 +195,7 @@ export default {
       this.showElementsViewer = true
     },
   },
-}
-
-Vue.config.productionTip = false
+})
 </script>
 
 <style scoped>
