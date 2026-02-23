@@ -1,7 +1,7 @@
 {
   "name": "@libresign/pdf-elements",
   "description": "PDF viewer with draggable and resizable element overlays for Vue 3",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "LibreCode <contact@librecode.coop>",
   "private": false,
   "main": "dist/index.js",
@@ -11,7 +11,9 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./src/components/PDFElements.vue": "./src/components/PDFElements.vue",
+    "./src/utils/asyncReader": "./src/utils/asyncReader.ts"
   },
   "repository": {
     "type": "git",
