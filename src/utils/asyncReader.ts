@@ -8,9 +8,16 @@ let pdfjsPromise: Promise<typeof import('pdfjs-dist')> | null = null
 let workerUrlPromise: Promise<string> | null = null
 let workerSrcOverride: string | null = null
 
+type PdfjsModule = typeof import('pdfjs-dist')
+
+function normalizePdfjs(mod: PdfjsModule): PdfjsModule {
+  const m = mod as PdfjsModule & { default?: PdfjsModule }
+  return (m.default?.PDFWorker ? m.default : m) as PdfjsModule
+}
+
 function loadPdfjs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import('pdfjs-dist')
+    pdfjsPromise = import('pdfjs-dist').then(normalizePdfjs)
   }
   return pdfjsPromise
 }
@@ -24,7 +31,10 @@ function loadWorkerUrl() {
   return workerUrlPromise
 }
 
-async function ensureWorkerSrc(pdfjs: typeof import('pdfjs-dist')) {
+async function ensureWorkerSrc(pdfjs: PdfjsModule) {
+  if (!pdfjs?.GlobalWorkerOptions) {
+    return
+  }
   if (workerSrcOverride) {
     pdfjs.GlobalWorkerOptions.workerSrc = workerSrcOverride
     return
@@ -34,7 +44,7 @@ async function ensureWorkerSrc(pdfjs: typeof import('pdfjs-dist')) {
   }
 }
 
-async function getSharedWorker(pdfjs: typeof import('pdfjs-dist')): Promise<PDFWorker> {
+async function getSharedWorker(pdfjs: PdfjsModule): Promise<PDFWorker> {
   if (!sharedWorker) {
     await ensureWorkerSrc(pdfjs)
     sharedWorker = new pdfjs.PDFWorker({}) as PDFWorker
@@ -44,9 +54,14 @@ async function getSharedWorker(pdfjs: typeof import('pdfjs-dist')): Promise<PDFW
 
 export function setWorkerPath(path: string) {
   workerSrcOverride = path
+  sharedWorker = null
   if (pdfjsPromise) {
     pdfjsPromise.then((pdfjs) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = path
+      if (pdfjs?.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerSrc = path
+      }
+    }).catch((error) => {
+      console.warn('setWorkerPath: failed to update pdfjs workerSrc immediately', error)
     })
   }
 }
