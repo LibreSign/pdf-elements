@@ -23,14 +23,19 @@ SPDX-License-Identifier: AGPL-3.0-or-later
               />
                 <div
                 class="overlay"
+                :role="isAddingMode ? 'button' : undefined"
+                :tabindex="isAddingMode ? 0 : -1"
+                :aria-label="getOverlayAriaLabel(docIndex, pIndex)"
                 @mousemove="handleMouseMove"
                 @touchmove="handleMouseMove"
                 @click="handleOverlayClick(docIndex, pIndex, $event)"
                 @touchend="handleOverlayClick(docIndex, pIndex, $event)"
+                @keydown="handleOverlayKeyDown(docIndex, pIndex, $event)"
               >
                 <div
                   v-if="isAddingMode && previewPageDocIndex === docIndex && previewPageIndex === pIndex && previewElement && previewVisible"
                   class="preview-element"
+                  aria-hidden="true"
                   :style="{
                     left: `${previewPosition.x * previewScale.x}px`,
                     top: `${previewPosition.y * previewScale.y}px`,
@@ -216,6 +221,10 @@ export default defineComponent({
     autoFitZoom: {
       type: Boolean,
       default: false,
+    },
+    pageAriaLabel: {
+      type: Function as PropType<(info: { docIndex: number; docName: string; totalDocs: number; pageNumber: number; totalPages: number; isAddingMode: boolean }) => string>,
+      default: null,
     },
     pdfjsOptions: {
       type: Object as PropType<Record<string, unknown>>,
@@ -728,6 +737,42 @@ export default defineComponent({
       if (event.key === 'Escape' && this.isAddingMode) {
         this.cancelAdding()
       }
+    },
+
+    getOverlayAriaLabel(docIndex, pageIndex) {
+      const doc = this.pdfDocuments?.[docIndex]
+      const docName = doc?.name ?? `Document ${docIndex + 1}`
+      const totalDocs = this.pdfDocuments?.length ?? 1
+      const totalPages = doc?.numPages ?? 0
+      const pageNumber = pageIndex + 1
+      if (this.pageAriaLabel) {
+        return this.pageAriaLabel({ docIndex, docName, totalDocs, pageNumber, totalPages, isAddingMode: this.isAddingMode })
+      }
+      const docPrefix = totalDocs > 1 ? `Document ${docIndex + 1} of ${totalDocs} (${docName}), ` : ''
+      if (this.isAddingMode) {
+        return `${docPrefix}Page ${pageNumber} of ${totalPages}. Press Enter or Space to place here.`
+      }
+      return `${docPrefix}Page ${pageNumber} of ${totalPages}.`
+    },
+
+    handleOverlayKeyDown(docIndex, pageIndex, event) {
+      if (!this.isAddingMode || !this.previewElement) return
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+
+      const pageWidth = this.getPageWidth(docIndex, pageIndex)
+      const pageHeight = this.getPageHeight(docIndex, pageIndex)
+      const scale = this.getDisplayedPageScale(docIndex, pageIndex) || 1
+
+      this.previewPageDocIndex = docIndex
+      this.previewPageIndex = pageIndex
+      this.previewScale = { x: scale, y: scale }
+      this.previewPosition = {
+        x: Math.round((pageWidth - this.previewElement.width) / 2),
+        y: Math.round((pageHeight - this.previewElement.height) / 2),
+      }
+      this.previewVisible = true
+      this.finishAdding()
     },
 
     handleWheel(event) {
