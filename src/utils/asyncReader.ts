@@ -24,7 +24,7 @@ function loadPdfjs() {
 
 function loadWorkerUrl() {
   if (!workerUrlPromise) {
-    workerUrlPromise = import('pdfjs-dist/build/pdf.worker.min.mjs?url').then(
+    workerUrlPromise = import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url').then(
       (mod) => mod.default as string
     )
   }
