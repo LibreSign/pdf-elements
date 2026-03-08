@@ -13,6 +13,7 @@
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
     },
+    "./dist/index.css": "./dist/index.css",
     "./src/components/PDFElements.vue": "./src/components/PDFElements.vue",
     "./src/utils/asyncReader": "./src/utils/asyncReader.ts"
   },
