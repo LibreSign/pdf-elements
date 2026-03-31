@@ -541,15 +541,76 @@ export default defineComponent({
     },
     getPointerPosition(event) {
       if (event?.type?.includes?.('touch')) {
+        const touch = event.touches?.[0] || event.changedTouches?.[0]
         return {
-          x: event.touches?.[0]?.clientX,
-          y: event.touches?.[0]?.clientY,
+          x: touch?.clientX,
+          y: touch?.clientY,
         }
       }
       return {
         x: event?.clientX,
         y: event?.clientY,
       }
+    },
+    updatePreviewFromClientPoint(cursorX, cursorY) {
+      let target = null
+
+      if (this.lastHoverRect &&
+        cursorX >= this.lastHoverRect.left && cursorX <= this.lastHoverRect.right &&
+        cursorY >= this.lastHoverRect.top && cursorY <= this.lastHoverRect.bottom) {
+        target = {
+          docIndex: this.previewPageDocIndex,
+          pageIndex: this.previewPageIndex,
+          rect: this.lastHoverRect,
+        }
+      } else {
+        const rectEntries = this.getPageBoundsList().length
+          ? this.getPageBoundsList()
+          : Object.values(this.getPageBoundsMap())
+        for (let i = 0; i < rectEntries.length; i++) {
+          const entry = rectEntries[i]
+          const rect = entry.rect
+          if (cursorX >= rect.left && cursorX <= rect.right &&
+              cursorY >= rect.top && cursorY <= rect.bottom) {
+            target = entry
+            break
+          }
+        }
+      }
+
+      if (!target) {
+        this.previewVisible = false
+        this.previewScale = { x: 1, y: 1 }
+        this.lastHoverRect = null
+        return false
+      }
+
+      this.previewPageDocIndex = target.docIndex
+      this.previewPageIndex = target.pageIndex
+      this.lastHoverRect = target.rect
+      const canvasEl = this.getPageCanvasElement(target.docIndex, target.pageIndex)
+      const pagesScale = this.pdfDocuments[target.docIndex]?.pagesScale?.[target.pageIndex] || 1
+      const renderWidth = canvasEl?.width || target.rect.width
+      const renderHeight = canvasEl?.height || target.rect.height
+      const layoutScaleX = renderWidth ? target.rect.width / renderWidth : 1
+      const layoutScaleY = renderHeight ? target.rect.height / renderHeight : 1
+      const relX = (cursorX - target.rect.left) / layoutScaleX / pagesScale
+      const relY = (cursorY - target.rect.top) / layoutScaleY / pagesScale
+
+      const pageWidth = renderWidth / pagesScale
+      const pageHeight = renderHeight / pagesScale
+      this.previewScale.x = pagesScale
+      this.previewScale.y = pagesScale
+      let x = relX - this.previewElement.width / 2
+      let y = relY - this.previewElement.height / 2
+
+      x = Math.max(0, Math.min(x, pageWidth - this.previewElement.width))
+      y = Math.max(0, Math.min(y, pageHeight - this.previewElement.height))
+
+      this.previewPosition.x = x
+      this.previewPosition.y = y
+      this.previewVisible = true
+      return true
     },
 
     getDisplayedPageScale(docIndex, pageIndex) {
@@ -628,65 +689,7 @@ export default defineComponent({
         const pending = this.pendingHoverClientPos
         if (!pending) return
 
-        const cursorX = pending.x
-        const cursorY = pending.y
-        let target = null
-
-        if (this.lastHoverRect &&
-          cursorX >= this.lastHoverRect.left && cursorX <= this.lastHoverRect.right &&
-          cursorY >= this.lastHoverRect.top && cursorY <= this.lastHoverRect.bottom) {
-          target = {
-            docIndex: this.previewPageDocIndex,
-            pageIndex: this.previewPageIndex,
-            rect: this.lastHoverRect,
-          }
-        } else {
-          const rectEntries = this.getPageBoundsList().length
-            ? this.getPageBoundsList()
-            : Object.values(this.getPageBoundsMap())
-          for (let i = 0; i < rectEntries.length; i++) {
-            const entry = rectEntries[i]
-            const rect = entry.rect
-            if (cursorX >= rect.left && cursorX <= rect.right &&
-                cursorY >= rect.top && cursorY <= rect.bottom) {
-              target = entry
-              break
-            }
-          }
-        }
-
-        if (!target) {
-          this.previewVisible = false
-          this.previewScale = { x: 1, y: 1 }
-          this.lastHoverRect = null
-          return
-        }
-
-        this.previewPageDocIndex = target.docIndex
-        this.previewPageIndex = target.pageIndex
-        this.lastHoverRect = target.rect
-        const canvasEl = this.getPageCanvasElement(target.docIndex, target.pageIndex)
-        const pagesScale = this.pdfDocuments[target.docIndex]?.pagesScale?.[target.pageIndex] || 1
-        const renderWidth = canvasEl?.width || target.rect.width
-        const renderHeight = canvasEl?.height || target.rect.height
-        const layoutScaleX = renderWidth ? target.rect.width / renderWidth : 1
-        const layoutScaleY = renderHeight ? target.rect.height / renderHeight : 1
-        const relX = (cursorX - target.rect.left) / layoutScaleX / pagesScale
-        const relY = (cursorY - target.rect.top) / layoutScaleY / pagesScale
-
-        const pageWidth = renderWidth / pagesScale
-        const pageHeight = renderHeight / pagesScale
-        this.previewScale.x = pagesScale
-        this.previewScale.y = pagesScale
-        let x = relX - this.previewElement.width / 2
-        let y = relY - this.previewElement.height / 2
-
-        x = Math.max(0, Math.min(x, pageWidth - this.previewElement.width))
-        y = Math.max(0, Math.min(y, pageHeight - this.previewElement.height))
-
-        this.previewPosition.x = x
-        this.previewPosition.y = y
-        this.previewVisible = true
+        this.updatePreviewFromClientPoint(pending.x, pending.y)
       })
     },
     handleOverlayClick(docIndex, pageIndex, event) {
@@ -800,8 +803,14 @@ export default defineComponent({
       this.cachePageBounds()
     },
 
-    finishAdding() {
+    finishAdding(event) {
       if (!this.isAddingMode || !this.previewElement) return
+      if (!this.previewVisible && event) {
+        const { x, y } = this.getPointerPosition(event)
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          this.updatePreviewFromClientPoint(x, y)
+        }
+      }
       if (!this.previewVisible) return
 
       const objectToAdd = {
