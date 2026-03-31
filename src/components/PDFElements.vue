@@ -1259,7 +1259,7 @@ export default defineComponent({
         .flatMap(doc => doc.pageWidths || [])
         .filter(width => width > 0)
 
-      let maxCanvasWidth = 0
+      let maxCanvasWidth
       if (widths.length) {
         maxCanvasWidth = Math.max(...widths)
       } else {
