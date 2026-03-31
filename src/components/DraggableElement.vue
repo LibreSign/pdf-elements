@@ -371,15 +371,13 @@ export default defineComponent({
         }
 
         const minSize = 16 / (this.pagesScale || 1)
-        let newWidth = this.startWidth
-        let newHeight = this.startHeight
         let newLeft = this.startLeft
         let newTop = this.startTop
 
         const widthChange = this.direction.includes('right') ? deltaX : this.direction.includes('left') ? -deltaX : 0
-        newWidth = this.startWidth + widthChange
+        let newWidth = this.startWidth + widthChange
         if (newWidth < minSize) newWidth = minSize
-        newHeight = newWidth / this.aspectRatio
+        let newHeight = newWidth / this.aspectRatio
 
         if (this.direction.includes('left')) {
           newLeft = this.startLeft + (this.startWidth - newWidth)

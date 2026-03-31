@@ -326,6 +326,48 @@ describe('PDFElements business rules', () => {
     expect(doc.allObjects[0].length).toBe(1)
   })
 
+  it('uses changedTouches coordinates on touchend pointer position', () => {
+    const { ctx } = makeWrapper()
+    const pointer = ctx.getPointerPosition({
+      type: 'touchend',
+      touches: [],
+      changedTouches: [{ clientX: 44, clientY: 55 }],
+    })
+
+    expect(pointer).toEqual({ x: 44, y: 55 })
+  })
+
+  it('places object on touchend even without prior touchmove', () => {
+    const { ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    ctx._pagesBoundingRects = {
+      '0-0': {
+        docIndex: 0,
+        pageIndex: 0,
+        rect: { left: 0, right: 100, top: 0, bottom: 100, width: 100, height: 100 },
+      },
+    }
+    ctx._pagesBoundingRectsList = Object.values(ctx._pagesBoundingRects)
+
+    ctx.isAddingMode = true
+    ctx.previewVisible = false
+    ctx.previewElement = { width: 20, height: 20 }
+    ctx.previewPageDocIndex = 0
+    ctx.previewPageIndex = 0
+    ctx.previewPosition = { x: 0, y: 0 }
+
+    ctx.finishAdding({
+      type: 'touchend',
+      touches: [],
+      changedTouches: [{ clientX: 30, clientY: 30 }],
+    })
+
+    expect(doc.allObjects[0].length).toBe(1)
+    expect(doc.allObjects[0][0].x).toBe(20)
+    expect(doc.allObjects[0][0].y).toBe(20)
+  })
+
   it('cancels adding resets preview state', () => {
     const { ctx } = makeWrapper()
     ctx.isAddingMode = true

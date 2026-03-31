@@ -1,17 +1,21 @@
 {
   "name": "@libresign/pdf-elements",
   "description": "PDF viewer with draggable and resizable element overlays for Vue 3",
-  "version": "1.0.0",
+  "version": "1.1.3",
   "author": "LibreCode <contact@librecode.coop>",
   "private": false,
-  "main": "dist/index.js",
-  "module": "dist/index.js",
+  "main": "dist/index.mjs",
+  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    },
+    "./dist/index.css": "./dist/index.css",
+    "./src/components/PDFElements.vue": "./src/components/PDFElements.vue",
+    "./src/utils/asyncReader": "./src/utils/asyncReader.ts"
   },
   "repository": {
     "type": "git",
@@ -47,19 +51,19 @@
   },
   "devDependencies": {
     "@nextcloud/browserslist-config": "^3.1.2",
-    "@eslint/js": "^10.0.1",
-    "@typescript-eslint/eslint-plugin": "^8.56.0",
-    "@typescript-eslint/parser": "^8.56.0",
+  "@eslint/js": "^10.0.1",
+  "@typescript-eslint/eslint-plugin": "^8.58.0",
+  "@typescript-eslint/parser": "^8.58.0",
     "@vitejs/plugin-vue": "^6.0.4",
-    "eslint": "^9.0.0",
+    "eslint": "^10.1.0",
     "eslint-plugin-vue": "^10.8.0",
-    "eslint-plugin-vitest": "^0.5.4",
-    "globals": "^15.9.0",
+    "@vitest/eslint-plugin": "^1.6.14",
+    "globals": "^17.4.0",
     "happy-dom": "^20.7.0",
     "postcss": "^8.5.6",
     "rollup-plugin-visualizer": "^7.0.0",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.1",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.2",
     "vite-plugin-dts": "^4.5.4",
     "vitest": "^4.0.18",
     "@vue/test-utils": "^2.4.6",
@@ -69,11 +73,6 @@
   "browserslist": [
     "extends @nextcloud/browserslist-config"
   ],
-  "overrides": {
-    "eslint-plugin-vitest": {
-      "@typescript-eslint/utils": "^8.56.0"
-    }
-  },
   "files": [
     "dist",
     "src",
