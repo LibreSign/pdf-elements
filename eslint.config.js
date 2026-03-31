@@ -7,7 +7,7 @@ const vue = require('eslint-plugin-vue')
 const tsPlugin = require('@typescript-eslint/eslint-plugin')
 const tsParser = require('@typescript-eslint/parser')
 const vueParser = require('vue-eslint-parser')
-const vitest = require('eslint-plugin-vitest')
+const vitest = require('@vitest/eslint-plugin')
 
 const vitestGlobals = {
   afterAll: 'readonly',
