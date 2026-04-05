@@ -7,16 +7,36 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   <div class="draggable-wrapper">
     <div
       v-if="isSelected && !isBeingDraggedGlobally && showSelectionUi && showDefaultActions"
-      class="actions-toolbar"
+      class="actions-toolbar pdf-elements-actions-toolbar"
       :style="toolbarStyle"
     >
-      <slot name="actions" :object="object" :onDelete="onDelete" :onDuplicate="onDuplicate">
-        <button class="action-btn" type="button" title="Duplicate" @click.stop="onDuplicate">
+      <slot
+        name="actions"
+        :object="object"
+        :onDelete="onDelete"
+        :onDuplicate="onDuplicate"
+        :toolbarClass="toolbarClass"
+        :actionClass="actionClass"
+        :actionAttrs="actionAttrs"
+      >
+        <button
+          class="action-btn pdf-elements-action-btn"
+          type="button"
+          title="Duplicate"
+          v-bind="actionAttrs"
+          @click.stop="onDuplicate"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H10V7h9v14z"/>
           </svg>
         </button>
-        <button class="action-btn" type="button" title="Delete" @click.stop="onDelete">
+        <button
+          class="action-btn pdf-elements-action-btn"
+          type="button"
+          title="Delete"
+          v-bind="actionAttrs"
+          @click.stop="onDelete"
+        >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M6.5 1h3a.5.5 0 0 1 .5.5v1H6v-1a.5.5 0 0 1 .5-.5ZM11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3A1.5 1.5 0 0 0 5 1.5v1H2.5a.5.5 0 0 0 0 1h.5v10.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V3.5h.5a.5.5 0 0 0 0-1H11Zm1 1v10.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V3.5h8Z"/>
           </svg>
@@ -222,6 +242,17 @@ export default defineComponent({
         opacity: 0,
         pointerEvents: 'none',
       } as CSSProperties
+    },
+    toolbarClass() {
+      return 'pdf-elements-actions-toolbar'
+    },
+    actionClass() {
+      return 'pdf-elements-action-btn'
+    },
+    actionAttrs() {
+      return {
+        'data-pdf-elements-action': 'true',
+      }
     },
   },
   mounted() {
@@ -487,28 +518,48 @@ export default defineComponent({
 .actions-toolbar {
   position: absolute;
   display: flex;
-  gap: 4px;
-  background: #1f2937;
-  border-radius: 6px;
-  padding: 6px 8px;
-  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.15), 0 2px 6px -2px rgba(0, 0, 0, 0.1);
+  gap: var(--pdf-elements-toolbar-gap, 4px);
+  background: var(--pdf-elements-toolbar-background, var(--color-main-background, #ffffff));
+  color: var(--pdf-elements-toolbar-color, var(--color-main-text, #222222));
+  border: 1px solid var(--pdf-elements-toolbar-border-color, var(--color-border, #d1d5db));
+  border-radius: var(--pdf-elements-toolbar-border-radius, 6px);
+  padding: var(--pdf-elements-toolbar-padding, 6px 8px);
+  box-shadow: var(--pdf-elements-toolbar-shadow, 0 4px 12px -2px rgba(0, 0, 0, 0.15), 0 2px 6px -2px rgba(0, 0, 0, 0.1));
   z-index: 5;
   white-space: nowrap;
 }
 .action-btn {
-  border: none;
-  background: transparent;
-  color: #ffffff;
-  padding: 4px;
-  border-radius: 4px;
+  border: var(--pdf-elements-action-btn-border, none);
+  background: var(--pdf-elements-action-btn-background, transparent);
+  color: var(--pdf-elements-action-btn-color, currentColor);
+  padding: var(--pdf-elements-action-btn-padding, 4px);
+  border-radius: var(--pdf-elements-action-btn-radius, 4px);
+  min-height: var(--pdf-elements-action-btn-min-height, auto);
+  min-width: var(--pdf-elements-action-btn-min-width, auto);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 120ms ease;
+  transition: background-color 120ms ease;
 }
 .action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--pdf-elements-action-btn-hover-background, var(--color-background-hover, rgba(0, 0, 0, 0.08)));
+}
+
+.actions-toolbar :deep(.pdf-elements-action-btn),
+.actions-toolbar :deep([data-pdf-elements-action]) {
+  border: var(--pdf-elements-action-btn-border, none);
+  background: var(--pdf-elements-action-btn-background, transparent);
+  color: var(--pdf-elements-action-btn-color, currentColor);
+  border-radius: var(--pdf-elements-action-btn-radius, 4px);
+  min-height: var(--pdf-elements-action-btn-min-height, auto);
+  min-width: var(--pdf-elements-action-btn-min-width, auto);
+  box-shadow: var(--pdf-elements-action-btn-shadow, none);
+}
+
+.actions-toolbar :deep(.pdf-elements-action-btn:hover),
+.actions-toolbar :deep([data-pdf-elements-action]:hover) {
+  background: var(--pdf-elements-action-btn-hover-background, var(--color-background-hover, rgba(0, 0, 0, 0.08)));
 }
 .draggable-element {
   position: absolute;
