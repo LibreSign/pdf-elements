@@ -66,6 +66,11 @@ export function setWorkerPath(path: string) {
   }
 }
 
+export async function ensureWorkerReady(): Promise<void> {
+  const pdfjs = await loadPdfjs()
+  await getSharedWorker(pdfjs)
+}
+
 export function readAsArrayBuffer(file: Blob): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()

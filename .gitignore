@@ -34,5 +34,3 @@ coverage/
 .env.*.local
 *.pem
 .cache
-
-package-lock.json
