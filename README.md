@@ -69,3 +69,55 @@ Example:
 - `element-{type}` - Custom element rendering (e.g., `element-signature`)
 - `custom` - Fallback for elements without specific type
 - `actions` - Custom action buttons
+
+#### `actions` slot props
+
+The `actions` slot receives:
+
+- `object`
+- `onDelete`
+- `onDuplicate`
+- `toolbarClass` (`pdf-elements-actions-toolbar`)
+- `actionClass` (`pdf-elements-action-btn`)
+- `actionAttrs` (`{ 'data-pdf-elements-action': 'true' }`)
+
+Use these hooks to style third-party button components consistently (for example, Nextcloud `NcButton`) without relying on internal scoped selectors.
+
+Example:
+
+```vue
+<template #actions="slotProps">
+	<NcButton
+		:class="slotProps.actionClass"
+		v-bind="slotProps.actionAttrs"
+		type="button"
+		variant="tertiary"
+		@click.stop="slotProps.onDuplicate"
+	>
+		Duplicate
+	</NcButton>
+</template>
+```
+
+### Theme variables
+
+Action toolbar and action buttons can be themed via CSS variables and follow host theme tokens by default.
+
+| Variable | Description |
+|---|---|
+| `--pdf-elements-toolbar-gap` | Toolbar button gap |
+| `--pdf-elements-toolbar-padding` | Toolbar padding |
+| `--pdf-elements-toolbar-background` | Toolbar background color |
+| `--pdf-elements-toolbar-color` | Toolbar text/icon color |
+| `--pdf-elements-toolbar-border-color` | Toolbar border color |
+| `--pdf-elements-toolbar-border-radius` | Toolbar border radius |
+| `--pdf-elements-toolbar-shadow` | Toolbar shadow |
+| `--pdf-elements-action-btn-border` | Action button border |
+| `--pdf-elements-action-btn-background` | Action button background |
+| `--pdf-elements-action-btn-color` | Action button text/icon color |
+| `--pdf-elements-action-btn-padding` | Action button padding |
+| `--pdf-elements-action-btn-radius` | Action button border radius |
+| `--pdf-elements-action-btn-min-height` | Action button min height |
+| `--pdf-elements-action-btn-min-width` | Action button min width |
+| `--pdf-elements-action-btn-shadow` | Action button shadow |
+| `--pdf-elements-action-btn-hover-background` | Action button hover background |
