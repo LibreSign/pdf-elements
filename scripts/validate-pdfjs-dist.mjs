@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { Buffer } from 'node:buffer'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
@@ -97,7 +98,7 @@ export async function validatePdfjsDist({ rootDir } = {}) {
 
 async function main() {
   const result = await validatePdfjsDist()
-  console.log(
+  globalThis.console.log(
     `Validated PDF.js dist chunks: runtime ${result.runtimeChunk} and worker ${result.workerChunk} both use ${result.runtimeVersion}.`
   )
 }
@@ -106,7 +107,7 @@ const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1]
 
 if (invokedPath === import.meta.url) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : error)
+    globalThis.console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
   })
 }
