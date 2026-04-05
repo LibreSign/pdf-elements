@@ -46,13 +46,16 @@ jobs:
         env:
           CYPRESS_INSTALL_BINARY: 0
           PUPPETEER_SKIP_DOWNLOAD: true
-        run: npm i
+        run: npm ci
 
       - name: Lint
         run: npm run lint
 
       - name: Build library
         run: npm run build
+
+      - name: Validate bundled PDF.js versions
+        run: npm run validate:dist
 
       - name: Check build changes
         run: |
