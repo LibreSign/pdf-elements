@@ -297,7 +297,7 @@ describe('PDFElements business rules', () => {
   })
 
   it('finishes adding only when preview is visible and within bounds', () => {
-    const { ctx } = makeWrapper()
+    const { wrapper, ctx } = makeWrapper()
     const doc = makeDoc()
     ctx.pdfDocuments = [doc]
 
@@ -316,6 +316,17 @@ describe('PDFElements business rules', () => {
 
     ctx.finishAdding()
     expect(doc.allObjects[0].length).toBe(1)
+    expect(wrapper.emitted()['pdf-elements:adding-ended']?.[0][0]).toEqual({
+      reason: 'placed',
+      object: expect.objectContaining({
+        x: 10,
+        y: 10,
+        width: 20,
+        height: 20,
+      }),
+      docIndex: 0,
+      pageIndex: 0,
+    })
 
     ctx.isAddingMode = true
     ctx.previewVisible = true
@@ -324,6 +335,9 @@ describe('PDFElements business rules', () => {
 
     ctx.finishAdding()
     expect(doc.allObjects[0].length).toBe(1)
+    expect(wrapper.emitted()['pdf-elements:adding-ended']?.[1][0]).toEqual({
+      reason: 'cancelled',
+    })
   })
 
   it('uses changedTouches coordinates on touchend pointer position', () => {
@@ -368,8 +382,8 @@ describe('PDFElements business rules', () => {
     expect(doc.allObjects[0][0].y).toBe(20)
   })
 
-  it('cancels adding resets preview state', () => {
-    const { ctx } = makeWrapper()
+  it('cancels adding resets preview state and emits cancellation once', () => {
+    const { wrapper, ctx } = makeWrapper()
     ctx.isAddingMode = true
     ctx.previewElement = { width: 10, height: 10 }
     ctx.previewVisible = true
@@ -379,10 +393,19 @@ describe('PDFElements business rules', () => {
     expect(ctx.isAddingMode).toBe(false)
     expect(ctx.previewElement).toBeNull()
     expect(ctx.previewVisible).toBe(false)
+    expect(wrapper.emitted()['pdf-elements:adding-ended']).toEqual([[{ reason: 'cancelled' }]])
   })
 
-  it('cancels adding on escape key', () => {
-    const { ctx } = makeWrapper()
+  it('does not emit cancellation when no add session is active', () => {
+    const { wrapper, ctx } = makeWrapper()
+
+    ctx.cancelAdding()
+
+    expect(wrapper.emitted()['pdf-elements:adding-ended']).toBeUndefined()
+  })
+
+  it('cancels adding on escape key and emits cancellation', () => {
+    const { wrapper, ctx } = makeWrapper()
     ctx.isAddingMode = true
     ctx.previewElement = { width: 10, height: 10 }
     ctx.previewVisible = true
@@ -390,6 +413,7 @@ describe('PDFElements business rules', () => {
     ctx.handleKeyDown({ key: 'Escape' })
 
     expect(ctx.isAddingMode).toBe(false)
+    expect(wrapper.emitted()['pdf-elements:adding-ended']).toEqual([[{ reason: 'cancelled' }]])
   })
 
   it('starts adding element and prepares preview state', () => {
