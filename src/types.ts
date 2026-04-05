@@ -14,6 +14,23 @@ export interface PDFElementObject {
   [key: string]: unknown
 }
 
+export type PDFElementsAddingEndedReason = 'placed' | 'cancelled'
+
+export interface PDFElementsAddingEndedPlacedPayload {
+  reason: 'placed'
+  object: PDFElementObject
+  docIndex: number
+  pageIndex: number
+}
+
+export interface PDFElementsAddingEndedCancelledPayload {
+  reason: 'cancelled'
+}
+
+export type PDFElementsAddingEndedPayload =
+  | PDFElementsAddingEndedPlacedPayload
+  | PDFElementsAddingEndedCancelledPayload
+
 export interface PDFDocumentEntry {
   name: string
   file: unknown
@@ -32,4 +49,5 @@ export interface PDFElementsPublicApi {
   updateObject: (docIndex: number, objectId: string, payload: Partial<PDFElementObject>) => void
   deleteObject: (docIndex: number, objectId: string) => void
   duplicateObject: (docIndex: number, objectId: string) => void
+  cancelAdding: () => void
 }
