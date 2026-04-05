@@ -4,7 +4,7 @@
 import type { App } from 'vue'
 import PDFElements from './components/PDFElements.vue'
 
-export { setWorkerPath } from './utils/asyncReader'
+export { ensureWorkerReady, setWorkerPath } from './utils/asyncReader'
 export type { PDFDocumentEntry, PDFElementObject, PDFElementsPublicApi } from './types'
 
 const install = (app: App) => {
