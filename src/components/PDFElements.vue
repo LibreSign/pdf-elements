@@ -154,11 +154,11 @@ import { getViewportWindow, isPageInViewport } from '../utils/pageBounds'
 import { applyScaleToDocs } from '../utils/zoom'
 import { objectIdExistsInDoc, findObjectPageIndex, updateObjectInDoc, removeObjectFromDoc } from '../utils/objectStore'
 import { getCachedMeasurement } from '../utils/measurements'
-import type { PDFDocumentEntry, PDFElementObject } from '../types'
+import type { PDFDocumentEntry, PDFElementObject, PDFElementsAddingEndedPayload } from '../types'
 
 export default defineComponent({
   name: 'PDFElements',
-  emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click'],
+  emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click', 'pdf-elements:adding-ended'],
   components: {
     PDFPage,
     DraggableElement,
@@ -738,8 +738,12 @@ export default defineComponent({
 
     handleKeyDown(event) {
       if (event.key === 'Escape' && this.isAddingMode) {
-        this.cancelAdding()
+        this.cancelAdding({ reason: 'cancelled' })
       }
+    },
+
+    emitAddingEnded(payload: PDFElementsAddingEndedPayload) {
+      this.$emit('pdf-elements:adding-ended', payload)
     },
 
     getOverlayAriaLabel(docIndex, pageIndex) {
@@ -827,7 +831,7 @@ export default defineComponent({
       if (objectToAdd.x < 0 || objectToAdd.y < 0 ||
           objectToAdd.x + objectToAdd.width > pageWidth ||
           objectToAdd.y + objectToAdd.height > pageHeight) {
-        this.cancelAdding()
+        this.cancelAdding({ reason: 'cancelled' })
         return
       }
 
@@ -837,7 +841,12 @@ export default defineComponent({
       const docIndex = this.previewPageDocIndex
       const objectId = objectToAdd.id
 
-      this.cancelAdding()
+      this.cancelAdding({
+        reason: 'placed',
+        object: objectToAdd,
+        docIndex,
+        pageIndex,
+      })
 
       this.$nextTick(() => {
         const refKey = `draggable${docIndex}-${pageIndex}-${objectId}`
@@ -848,11 +857,17 @@ export default defineComponent({
       })
     },
 
-    cancelAdding() {
+    cancelAdding(payload: PDFElementsAddingEndedPayload = { reason: 'cancelled' }) {
+      const hadPendingAdd = this.isAddingMode || this.previewElement !== null || this.previewVisible
+
       this.isAddingMode = false
       this.previewElement = null
       this.previewVisible = false
       this.detachAddingListeners()
+
+      if (hadPendingAdd) {
+        this.emitAddingEnded(payload)
+      }
     },
     generateObjectId() {
       const counter = this.nextObjectCounter++

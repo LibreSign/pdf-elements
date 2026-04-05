@@ -57,6 +57,12 @@ Example:
 ### Events
 
 - `pdf-elements:end-init` - Emitted when PDF is loaded
+- `pdf-elements:adding-ended` - Emitted when interactive placement ends. Payload: `{ reason: 'placed', object, docIndex, pageIndex }` on success or `{ reason: 'cancelled' }` when the placement is cancelled.
+
+### Exposed methods
+
+- `startAddingElement(templateObject)` - Starts interactive placement mode.
+- `cancelAdding()` - Cancels the current placement session and emits `pdf-elements:adding-ended` with `{ reason: 'cancelled' }` when a session was active.
 
 ### Slots
 
