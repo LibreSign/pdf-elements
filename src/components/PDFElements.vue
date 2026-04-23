@@ -1305,7 +1305,7 @@ export default defineComponent({
   overflow-y: auto;
   overflow-x: auto;
   box-sizing: border-box;
-  touch-action: pan-x pan-y;
+  touch-action: pan-x pan-y pinch-zoom;
   -webkit-overflow-scrolling: touch;
 }
 .pages-container {
