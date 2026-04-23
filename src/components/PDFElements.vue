@@ -243,6 +243,12 @@ export default defineComponent({
       pendingHoverClientPos: null as { x: number; y: number } | null,
       lastHoverRect: null as DOMRect | null,
       addingListenersAttached: false,
+      isPinching: false,
+      pinchStartDistance: 0,
+      pinchStartScale: this.initialScale,
+      pinchAnchor: { x: 0, y: 0 },
+      pinchCenter: { x: 0, y: 0 },
+      suppressTouchClickUntil: 0,
       dragRafId: 0,
       pendingDragClientPos: null as { x: number; y: number } | null,
       pageBoundsVersion: 0,
@@ -263,6 +269,9 @@ export default defineComponent({
       zoomRafId: null as number | null,
       wheelZoomRafId: null as number | null,
       boundHandleWheel: null as ((event: WheelEvent) => void) | null,
+      boundHandleTouchStart: null as ((event: TouchEvent) => void) | null,
+      boundHandleTouchMove: null as ((event: TouchEvent) => void) | null,
+      boundHandleTouchEnd: null as ((event: TouchEvent) => void) | null,
       visualScale: this.initialScale,
       autoFitApplied: false,
       lastContainerWidth: 0,
@@ -275,11 +284,18 @@ export default defineComponent({
   },
   mounted() {
     this.boundHandleWheel = this.handleWheel.bind(this)
+    this.boundHandleTouchStart = this.handleTouchStart.bind(this)
+    this.boundHandleTouchMove = this.handleTouchMove.bind(this)
+    this.boundHandleTouchEnd = this.handleTouchEnd.bind(this)
     this.init()
     window.addEventListener('scroll', this.onViewportScroll, { passive: true })
     window.addEventListener('resize', this.onViewportScroll)
     this.$el?.addEventListener('scroll', this.onViewportScroll, { passive: true })
     this.$el?.addEventListener('wheel', this.boundHandleWheel, { passive: false })
+    this.$el?.addEventListener('touchstart', this.boundHandleTouchStart, { passive: false })
+    this.$el?.addEventListener('touchmove', this.boundHandleTouchMove, { passive: false })
+    this.$el?.addEventListener('touchend', this.boundHandleTouchEnd)
+    this.$el?.addEventListener('touchcancel', this.boundHandleTouchEnd)
   },
   beforeUnmount() {
     if (this.zoomRafId) {
@@ -291,6 +307,16 @@ export default defineComponent({
     }
     if (this.boundHandleWheel) {
       this.$el?.removeEventListener('wheel', this.boundHandleWheel)
+    }
+    if (this.boundHandleTouchStart) {
+      this.$el?.removeEventListener('touchstart', this.boundHandleTouchStart)
+    }
+    if (this.boundHandleTouchMove) {
+      this.$el?.removeEventListener('touchmove', this.boundHandleTouchMove)
+    }
+    if (this.boundHandleTouchEnd) {
+      this.$el?.removeEventListener('touchend', this.boundHandleTouchEnd)
+      this.$el?.removeEventListener('touchcancel', this.boundHandleTouchEnd)
     }
     this.detachAddingListeners()
     window.removeEventListener('scroll', this.onViewportScroll)
@@ -547,6 +573,95 @@ export default defineComponent({
         y: event?.clientY,
       }
     },
+    getTouchDistance(touches) {
+      if (!touches || touches.length < 2) return 0
+      const first = touches[0]
+      const second = touches[1]
+      return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)
+    },
+    getTouchCenter(touches) {
+      if (!touches || touches.length < 2) return null
+      const first = touches[0]
+      const second = touches[1]
+      return {
+        x: (first.clientX + second.clientX) / 2,
+        y: (first.clientY + second.clientY) / 2,
+      }
+    },
+    clampZoomScale(scale) {
+      return Math.max(0.5, Math.min(3.0, scale))
+    },
+    startPinchZoom(event) {
+      const container = this.$el
+      const center = this.getTouchCenter(event.touches)
+      const distance = this.getTouchDistance(event.touches)
+      if (!container || !center || !distance) return
+
+      const containerRect = container.getBoundingClientRect()
+      const localCenterX = center.x - containerRect.left
+      const localCenterY = center.y - containerRect.top
+      const currentScale = this.scale || 1
+
+      this.isPinching = true
+      this.pinchStartDistance = distance
+      this.pinchStartScale = this.visualScale || currentScale
+      this.pinchCenter = { x: localCenterX, y: localCenterY }
+      this.pinchAnchor = {
+        x: (container.scrollLeft + localCenterX) / currentScale,
+        y: (container.scrollTop + localCenterY) / currentScale,
+      }
+      this.suppressTouchClickUntil = Date.now() + 300
+    },
+    applyPinchZoom(nextScale, center) {
+      const container = this.$el
+      if (!container) return
+
+      this.visualScale = nextScale
+      this.commitZoom()
+      container.scrollLeft = Math.max(0, (this.pinchAnchor.x * nextScale) - center.x)
+      container.scrollTop = Math.max(0, (this.pinchAnchor.y * nextScale) - center.y)
+      this.cachePageBounds()
+    },
+    handleTouchStart(event) {
+      if (event.touches.length !== 2 || this.isAddingMode || this.isDraggingElement) return
+      if (event.cancelable) {
+        event.preventDefault()
+      }
+      this.startPinchZoom(event)
+    },
+    handleTouchMove(event) {
+      if (event.touches.length !== 2) return
+      if (!this.isPinching) {
+        this.startPinchZoom(event)
+      }
+      if (!this.isPinching) return
+      if (event.cancelable) {
+        event.preventDefault()
+      }
+
+      const container = this.$el
+      const center = this.getTouchCenter(event.touches)
+      const distance = this.getTouchDistance(event.touches)
+      if (!container || !center || !distance || !this.pinchStartDistance) return
+
+      const containerRect = container.getBoundingClientRect()
+      const localCenter = {
+        x: center.x - containerRect.left,
+        y: center.y - containerRect.top,
+      }
+      const nextScale = this.clampZoomScale(this.pinchStartScale * (distance / this.pinchStartDistance))
+
+      this.pinchCenter = localCenter
+      this.applyPinchZoom(nextScale, localCenter)
+    },
+    handleTouchEnd(event) {
+      if (event.touches.length >= 2) {
+        this.startPinchZoom(event)
+        return
+      }
+      this.isPinching = false
+      this.pinchStartDistance = 0
+    },
     updatePreviewFromClientPoint(cursorX, cursorY) {
       let target = null
 
@@ -669,6 +784,7 @@ export default defineComponent({
     },
 
     handleMouseMove(event) {
+      if (event?.touches?.length > 1 || this.isPinching) return
       if (!this.isAddingMode || !this.previewElement) return
       const { x, y } = this.getPointerPosition(event)
       if (x === undefined || y === undefined) return
@@ -688,6 +804,7 @@ export default defineComponent({
       })
     },
     handleOverlayClick(docIndex, pageIndex, event) {
+      if (event?.type?.includes?.('touch') && (this.isPinching || Date.now() < this.suppressTouchClickUntil)) return
       if (!this.emitObjectClick) return
 
       const { x: clientX, y: clientY } = this.getPointerPosition(event)
@@ -782,7 +899,7 @@ export default defineComponent({
       event.preventDefault()
 
       const factor = 1 - (event.deltaY * 0.002)
-      const nextVisual = Math.max(0.5, Math.min(3.0, this.visualScale * factor))
+      const nextVisual = this.clampZoomScale(this.visualScale * factor)
       this.visualScale = nextVisual
       if (this.wheelZoomRafId) return
       this.wheelZoomRafId = window.requestAnimationFrame(() => {
@@ -1305,7 +1422,7 @@ export default defineComponent({
   overflow-y: auto;
   overflow-x: auto;
   box-sizing: border-box;
-  touch-action: pan-x pan-y pinch-zoom;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
 .pages-container {
