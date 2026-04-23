@@ -1303,15 +1303,17 @@ export default defineComponent({
   width: 100%;
   height: 100%;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   box-sizing: border-box;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 .pages-container {
   width: 100%;
   padding: 20px 0 0 0;
   text-align: center;
   background: #f7fafc;
-  overflow: hidden;
+  overflow: visible;
 }
 .page-slot {
   margin: 0 auto;
