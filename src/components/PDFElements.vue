@@ -146,7 +146,6 @@ import DraggableElement from './DraggableElement.vue'
 import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader'
 import { clampPosition, getVisibleArea } from '../utils/geometry'
 import { getViewportWindow, isPageInViewport } from '../utils/pageBounds'
-import { applyScaleToDocs } from '../utils/zoom'
 import { objectIdExistsInDoc, findObjectPageIndex, updateObjectInDoc, removeObjectFromDoc } from '../utils/objectStore'
 import { getCachedMeasurement } from '../utils/measurements'
 import type { PDFDocumentEntry, PDFElementObject, PDFElementsAddingEndedPayload } from '../types'
@@ -272,9 +271,10 @@ export default defineComponent({
       boundHandleTouchStart: null as ((event: TouchEvent) => void) | null,
       boundHandleTouchMove: null as ((event: TouchEvent) => void) | null,
       boundHandleTouchEnd: null as ((event: TouchEvent) => void) | null,
-      visualScale: this.initialScale,
+      pendingZoomScale: this.initialScale,
+      isSyncingScale: false,
+      isTouchDevice: false,
       autoFitApplied: false,
-      lastContainerWidth: 0,
       _pagesBoundingRects: markRaw({}) as Record<string, { docIndex: number; pageIndex: number; rect: DOMRect }>,
       _pagesBoundingRectsList: markRaw([]) as { docIndex: number; pageIndex: number; rect: DOMRect }[],
       _pageMeasurementCache: markRaw({}) as Record<string, { width: number; height: number }>,
@@ -282,7 +282,19 @@ export default defineComponent({
       _lastPageBoundsClientHeight: 0,
     }
   },
+  watch: {
+    scale(newScale) {
+      if (this.isSyncingScale) return
+      this.syncScaleState(newScale)
+    },
+  },
   mounted() {
+    this.isTouchDevice = typeof window !== 'undefined'
+      && (
+        (window.matchMedia?.('(pointer: coarse)').matches ?? false)
+        || 'ontouchstart' in window
+        || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+      )
     this.boundHandleWheel = this.handleWheel.bind(this)
     this.boundHandleTouchStart = this.handleTouchStart.bind(this)
     this.boundHandleTouchMove = this.handleTouchMove.bind(this)
@@ -336,6 +348,21 @@ export default defineComponent({
     }
   },
   methods: {
+    syncScaleState(nextScale) {
+      const normalizedScale = this.clampZoomScale(Number(nextScale) || 1)
+      if (this.scale !== normalizedScale) {
+        this.isSyncingScale = true
+        this.scale = normalizedScale
+        this.isSyncingScale = false
+      }
+      this.pendingZoomScale = normalizedScale
+      this.pdfDocuments.forEach((doc) => {
+        doc.pagesScale = doc.pagesScale.map(() => normalizedScale)
+      })
+      this._pageMeasurementCache = markRaw({})
+      this.cachePageBounds()
+    },
+
     async init() {
       if (!this.initFiles || this.initFiles.length === 0) return
       const docs: PDFDocumentEntry[] = []
@@ -604,7 +631,7 @@ export default defineComponent({
 
       this.isPinching = true
       this.pinchStartDistance = distance
-      this.pinchStartScale = this.visualScale || currentScale
+      this.pinchStartScale = currentScale
       this.pinchCenter = { x: localCenterX, y: localCenterY }
       this.pinchAnchor = {
         x: (container.scrollLeft + localCenterX) / currentScale,
@@ -616,8 +643,7 @@ export default defineComponent({
       const container = this.$el
       if (!container) return
 
-      this.visualScale = nextScale
-      this.commitZoom()
+      this.commitZoom(nextScale)
       container.scrollLeft = Math.max(0, (this.pinchAnchor.x * nextScale) - center.x)
       container.scrollTop = Math.max(0, (this.pinchAnchor.y * nextScale) - center.y)
       this.cachePageBounds()
@@ -743,9 +769,7 @@ export default defineComponent({
           return fallbackRectWidth / baseWidth
         }
       }
-      const base = doc.pagesScale[pageIndex] || 1
-      const factor = this.visualScale && this.scale ? (this.visualScale / this.scale) : 1
-      return base * factor
+      return this.scale || 1
     },
     getPageComponent(docIndex, pageIndex) {
       const pageRef = this.$refs[`page${docIndex}-${pageIndex}`]
@@ -772,9 +796,8 @@ export default defineComponent({
             this.cachePageBounds()
           }
         }
-        if (this.autoFitZoom && !this.isAddingMode && !this.isDraggingElement) {
+        if (this.autoFitZoom && !this.isAddingMode && !this.isDraggingElement && !this.isPinching) {
           if (clientWidth && widthChanged) {
-            this.lastContainerWidth = clientWidth
             this.autoFitApplied = false
             this.scheduleAutoFitZoom()
           }
@@ -898,25 +921,22 @@ export default defineComponent({
       if (!event.ctrlKey) return
       event.preventDefault()
 
+      const currentScale = this.wheelZoomRafId ? this.pendingZoomScale : this.scale
       const factor = 1 - (event.deltaY * 0.002)
-      const nextVisual = this.clampZoomScale(this.visualScale * factor)
-      this.visualScale = nextVisual
+      this.pendingZoomScale = this.clampZoomScale(currentScale * factor)
       if (this.wheelZoomRafId) return
       this.wheelZoomRafId = window.requestAnimationFrame(() => {
         this.wheelZoomRafId = null
-        this.commitZoom()
+        this.commitZoom(this.pendingZoomScale)
       })
     },
 
-    commitZoom() {
-      const newScale = this.visualScale
-
+    commitZoom(nextScale = this.pendingZoomScale) {
+      const newScale = this.clampZoomScale(nextScale || this.scale || 1)
+      this.isSyncingScale = true
       this.scale = newScale
-
-      applyScaleToDocs(this.pdfDocuments, this.scale)
-
-      this._pageMeasurementCache = markRaw({})
-      this.cachePageBounds()
+      this.isSyncingScale = false
+      this.syncScaleState(newScale)
     },
 
     finishAdding(event) {
@@ -1059,14 +1079,14 @@ export default defineComponent({
         if (!pageRef) return
         const measurement = this.getCachedMeasurement(docIndex, pageIndex, pageRef)
         const normalizedCanvasHeight = measurement.height
-        const pagesScale = doc.pagesScale[pageIndex] || 1
+        const pageScale = this.scale || 1
 
         pageObjects.forEach(object => {
           result.push({
             ...object,
             pageIndex,
             pageNumber: pageIndex + 1,
-            scale: pagesScale,
+            scale: pageScale,
             normalizedCoordinates: {
               llx: Math.round(object.x),
               lly: Math.round(normalizedCanvasHeight - object.y),
@@ -1327,7 +1347,6 @@ export default defineComponent({
 
     onMeasure(e, docIndex, pageIndex) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
-      this.pdfDocuments[docIndex].pagesScale.splice(pageIndex, 1, e.scale)
       this._pageMeasurementCache[`${docIndex}-${pageIndex}`] = null
       this.cachePageBoundsForPage(docIndex, pageIndex)
       if (this.autoFitZoom) {
@@ -1360,9 +1379,7 @@ export default defineComponent({
     },
     getCachedMeasurement(docIndex, pageIndex, pageRef) {
       const cacheKey = `${docIndex}-${pageIndex}`
-      const doc = this.pdfDocuments[docIndex]
-      const pagesScale = doc.pagesScale[pageIndex] || 1
-      return getCachedMeasurement(this._pageMeasurementCache, cacheKey, pageRef, pagesScale)
+      return getCachedMeasurement(this._pageMeasurementCache, cacheKey, pageRef, this.scale || 1)
     },
     calculateOptimalScale(maxPageWidth) {
       const containerWidth = this.$el?.clientWidth || 0
@@ -1379,8 +1396,8 @@ export default defineComponent({
         this.adjustZoomToFit()
       })
     },
-    adjustZoomToFit() {
-      if (!this.autoFitZoom || this.autoFitApplied || !this.pdfDocuments.length) return
+    adjustZoomToFit(force = false) {
+      if ((!this.autoFitZoom && !force) || this.autoFitApplied || !this.pdfDocuments.length) return
 
       const widths = this.pdfDocuments
         .flatMap(doc => doc.pageWidths || [])
@@ -1404,11 +1421,7 @@ export default defineComponent({
       const optimalScale = this.calculateOptimalScale(maxCanvasWidth)
       this.autoFitApplied = true
       if (Math.abs(optimalScale - this.scale) > 0.01) {
-        this.scale = optimalScale
-        this.visualScale = optimalScale
-        applyScaleToDocs(this.pdfDocuments, this.scale)
-        this._pageMeasurementCache = markRaw({})
-        this.cachePageBounds()
+        this.commitZoom(optimalScale)
       }
     },
   },
