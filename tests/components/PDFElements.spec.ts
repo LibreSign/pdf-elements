@@ -568,7 +568,7 @@ describe('PDFElements business rules', () => {
     ctx.pdfDocuments = [doc]
     await wrapper.setProps({ autoFitZoom: true })
     ctx.scale = 1
-    ctx.visualScale = 1
+    ctx.pendingZoomScale = 1
 
     Object.defineProperty(wrapper.element, 'clientWidth', {
       value: 500,
@@ -579,7 +579,28 @@ describe('PDFElements business rules', () => {
 
     expect(ctx.autoFitApplied).toBe(true)
     expect(ctx.scale).toBe(2)
-    expect(ctx.visualScale).toBe(2)
+    expect(ctx.pendingZoomScale).toBe(2)
+    expect(ctx.pdfDocuments[0].pagesScale).toEqual([2, 2])
+  })
+
+  it('allows forced one-shot fit when auto-fit is disabled', () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    doc.pageWidths = [100, 200]
+    ctx.pdfDocuments = [doc]
+    ctx.scale = 1
+    ctx.pendingZoomScale = 1
+
+    Object.defineProperty(wrapper.element, 'clientWidth', {
+      value: 500,
+      configurable: true,
+    })
+
+    ctx.adjustZoomToFit(true)
+
+    expect(ctx.autoFitApplied).toBe(true)
+    expect(ctx.scale).toBe(2)
+    expect(ctx.pendingZoomScale).toBe(2)
     expect(ctx.pdfDocuments[0].pagesScale).toEqual([2, 2])
   })
 
@@ -587,7 +608,7 @@ describe('PDFElements business rules', () => {
     const { ctx } = makeWrapper()
     const doc = makeDoc()
     ctx.pdfDocuments = [doc]
-    ctx.visualScale = 1.6
+    ctx.pendingZoomScale = 1.6
 
     ctx.commitZoom()
 
@@ -631,8 +652,7 @@ describe('PDFElements business rules', () => {
     doc.pageWidths = [100, 100]
     doc.pagesScale = [1, 1]
     ctx.pdfDocuments = [doc]
-    ctx.scale = 1
-    ctx.visualScale = 1.5
+    ctx.scale = 1.5
 
     ctx.getPageCanvasElement = vi.fn(() => ({
       width: 0,
@@ -652,18 +672,249 @@ describe('PDFElements business rules', () => {
     expect(scale).toBe(1.5)
   })
 
-  it('prefers per-page scale when no rect width is available', () => {
+  it('falls back to the current component scale when no rect width is available', () => {
     const { ctx } = makeWrapper()
     const doc = makeDoc()
     doc.pagesScale = [1.2, 1.4]
     ctx.pdfDocuments = [doc]
-    ctx.scale = 1
-    ctx.visualScale = 1
+    ctx.scale = 1.25
 
     ctx.getPageCanvasElement = vi.fn(() => null)
 
     const scale = ctx.getDisplayedPageScale(0, 1)
 
-    expect(scale).toBe(1.4)
+    expect(scale).toBe(1.25)
+  })
+
+  it('accumulates wheel zoom using scale as the source of truth', () => {
+    const { ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    ctx.scale = 1
+
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+
+    ctx.handleWheel({ ctrlKey: true, deltaY: -100, preventDefault: vi.fn() })
+
+    expect(ctx.scale).toBeGreaterThan(1)
+    expect(ctx.pendingZoomScale).toBe(ctx.scale)
+    expect(ctx.pdfDocuments[0].pagesScale).toEqual([ctx.scale, ctx.scale])
+
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps page scales in sync when scale is mutated directly', async () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    ctx.scale = 1.6
+
+    await wrapper.vm.$nextTick()
+
+    expect(ctx.pendingZoomScale).toBe(1.6)
+    expect(doc.pagesScale).toEqual([1.6, 1.6])
+  })
+
+  it('clamps direct scale mutations to supported bounds', async () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    ctx.scale = 10
+
+    await wrapper.vm.$nextTick()
+
+    expect(ctx.scale).toBe(3)
+    expect(ctx.pendingZoomScale).toBe(3)
+    expect(doc.pagesScale).toEqual([3, 3])
+  })
+
+  it('re-applies auto-fit on touch devices when container width changes', async () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    await wrapper.setProps({ autoFitZoom: true })
+    ctx.autoFitApplied = true
+    ctx.isTouchDevice = true
+    ctx.lastClientWidth = 320
+    ctx.lastScrollTop = 0
+
+    Object.defineProperty(wrapper.element, 'clientWidth', {
+      value: 480,
+      configurable: true,
+    })
+    Object.defineProperty(wrapper.element, 'scrollTop', {
+      value: 0,
+      configurable: true,
+    })
+
+    const scheduleSpy = vi.spyOn(ctx, 'scheduleAutoFitZoom').mockImplementation(() => {})
+
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+
+    ctx.onViewportScroll()
+
+    expect(ctx.autoFitApplied).toBe(false)
+    expect(scheduleSpy).toHaveBeenCalledTimes(1)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('does not re-apply auto-fit while dragging on touch resize', async () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    await wrapper.setProps({ autoFitZoom: true })
+    ctx.isTouchDevice = true
+    ctx.isDraggingElement = true
+    ctx.lastClientWidth = 320
+
+    Object.defineProperty(wrapper.element, 'clientWidth', {
+      value: 480,
+      configurable: true,
+    })
+
+    const scheduleSpy = vi.spyOn(ctx, 'scheduleAutoFitZoom')
+
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+
+    ctx.onViewportScroll()
+
+    expect(scheduleSpy).not.toHaveBeenCalled()
+
+    vi.unstubAllGlobals()
+  })
+
+  it('recomputes scale after touch viewport rotation-like resize', async () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    doc.pageWidths = [100, 200]
+    ctx.pdfDocuments = [doc]
+    ctx.scale = 1
+    ctx.pendingZoomScale = 1
+    ctx.autoFitApplied = true
+    ctx.isTouchDevice = true
+    ctx.lastClientWidth = 320
+    ctx.lastScrollTop = 0
+    await wrapper.setProps({ autoFitZoom: true })
+
+    Object.defineProperty(wrapper.element, 'clientWidth', {
+      value: 500,
+      configurable: true,
+    })
+    Object.defineProperty(wrapper.element, 'scrollTop', {
+      value: 0,
+      configurable: true,
+    })
+
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+
+    ctx.onViewportScroll()
+
+    expect(ctx.autoFitApplied).toBe(true)
+    expect(ctx.scale).toBe(2)
+    expect(ctx.pendingZoomScale).toBe(2)
+    expect(ctx.pdfDocuments[0].pagesScale).toEqual([2, 2])
+
+    vi.unstubAllGlobals()
+  })
+
+  it('does not trigger touch auto-fit when width is unchanged', async () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    ctx.autoFitApplied = true
+    ctx.isTouchDevice = true
+    ctx.lastClientWidth = 480
+    ctx.lastScrollTop = 0
+    await wrapper.setProps({ autoFitZoom: true })
+
+    Object.defineProperty(wrapper.element, 'clientWidth', {
+      value: 480,
+      configurable: true,
+    })
+    Object.defineProperty(wrapper.element, 'scrollTop', {
+      value: 0,
+      configurable: true,
+    })
+
+    const scheduleSpy = vi.spyOn(ctx, 'scheduleAutoFitZoom')
+
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+
+    ctx.onViewportScroll()
+
+    expect(scheduleSpy).not.toHaveBeenCalled()
+    expect(ctx.autoFitApplied).toBe(true)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('suppresses auto-fit during pinch and resumes after pinch ends', async () => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    doc.pageWidths = [100, 200]
+    ctx.pdfDocuments = [doc]
+    ctx.scale = 1
+    ctx.pendingZoomScale = 1
+    ctx.autoFitApplied = true
+    ctx.isTouchDevice = true
+    ctx.lastClientWidth = 320
+    ctx.lastScrollTop = 0
+    await wrapper.setProps({ autoFitZoom: true })
+
+    const scheduleSpy = vi.spyOn(ctx, 'scheduleAutoFitZoom').mockImplementation(() => {})
+    let rafCallback: FrameRequestCallback | null = null
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      rafCallback = callback
+      return 1
+    })
+
+    ctx.isPinching = true
+    Object.defineProperty(wrapper.element, 'clientWidth', {
+      value: 500,
+      configurable: true,
+    })
+    Object.defineProperty(wrapper.element, 'scrollTop', {
+      value: 0,
+      configurable: true,
+    })
+
+    ctx.onViewportScroll()
+  rafCallback?.(0)
+
+    expect(scheduleSpy).not.toHaveBeenCalled()
+    expect(ctx.autoFitApplied).toBe(true)
+    expect(ctx.scale).toBe(1)
+
+    ctx.isPinching = false
+    ctx.autoFitApplied = true
+    ctx.lastClientWidth = 500
+
+    Object.defineProperty(wrapper.element, 'clientWidth', {
+      value: 640,
+      configurable: true,
+    })
+
+    ctx.onViewportScroll()
+    rafCallback?.(0)
+
+    expect(scheduleSpy).toHaveBeenCalledTimes(1)
+
+    rafSpy.mockRestore()
   })
 })
