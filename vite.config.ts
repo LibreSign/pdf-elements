@@ -18,6 +18,7 @@ export default defineConfig(async ({ command, mode }) => {
         insertTypesEntry: true,
         include: ['src'],
         exclude: ['examples', 'tests'],
+        processor: 'vue',
       })
     )
   }

@@ -114,7 +114,7 @@ describe('PDFPage business rules', () => {
       },
     })
 
-    wrapper.vm.renderTask = { cancel }
+    wrapper.vm.renderTask = { cancel, promise: Promise.resolve() }
 
     await wrapper.vm.render()
 
@@ -129,7 +129,7 @@ describe('PDFPage business rules', () => {
     })
 
     const cancel = vi.fn()
-    wrapper.vm.renderTask = { cancel }
+    wrapper.vm.renderTask = { cancel, promise: Promise.resolve() }
     wrapper.unmount()
 
     expect(cancel).toHaveBeenCalled()

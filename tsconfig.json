@@ -12,7 +12,7 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "types": ["vite/client", "vitest/globals"]
+    "types": ["node", "vite/client", "vitest/globals"]
   },
   "include": ["env.d.ts", "src", "examples", "tests"]
 }

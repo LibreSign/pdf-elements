@@ -33,7 +33,7 @@ jobs:
 
       - name: Install & Build
         run: |
-          npm i
+          npm ci
           npm run build:demo
 
       - name: Deploy
