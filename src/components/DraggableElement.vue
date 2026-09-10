@@ -66,6 +66,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
           class="resize-handle"
           :class="`handle-${dir}`"
           type="button"
+          :aria-label="`Resize ${dir}`"
           @mousedown.stop.prevent="startResize(dir, $event)"
           @touchstart.stop.prevent="startResize(dir, $event)"
         />

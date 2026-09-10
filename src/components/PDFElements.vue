@@ -25,7 +25,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 class="overlay"
                 :role="isAddingMode ? 'button' : undefined"
                 :tabindex="isAddingMode ? 0 : -1"
-                :aria-label="getOverlayAriaLabel(docIndex, pIndex)"
+                :aria-label="isAddingMode ? getOverlayAriaLabel(docIndex, pIndex) : undefined"
                 @mousemove="handleMouseMove"
                 @touchmove="handleMouseMove"
                 @click="handleOverlayClick(docIndex, pIndex, $event)"

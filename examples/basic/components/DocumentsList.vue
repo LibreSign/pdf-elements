@@ -1,6 +1,6 @@
 <template>
   <section v-if="documents.length" class="docs-list">
-    <h3>Documents ({{ documents.length }})</h3>
+    <h2>Documents ({{ documents.length }})</h2>
     <ul>
       <li v-for="(doc, idx) in documents" :key="idx">
         {{ doc }}
