@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-name: Tests
+name: Playwright
 
 on:
   pull_request:
@@ -13,17 +13,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: tests-${{ github.head_ref || github.run_id }}
+  group: playwright-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  test:
+  e2e:
     runs-on: ubuntu-latest
-
-    name: NPM test
+    name: Playwright e2e
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -35,7 +34,7 @@ jobs:
           fallbackNpm: '^11'
 
       - name: Set up node ${{ steps.versions.outputs.nodeVersion }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ steps.versions.outputs.nodeVersion }}
 
@@ -48,5 +47,18 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: true
         run: npm ci
 
-      - name: Test
-        run: npm run test
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
