@@ -57,3 +57,8 @@ test("zoom a pdf element", async({page})=> {
   await expect(page.locator(".signature-box")).toHaveCount(1)
   expect(after.x).not.toBe(before.y);
 })
+
+test("duplicates a signature element", async ({ page }) => {
+  await page.getByTitle("Duplicate").click();
+  await expect(page.locator(".signature-box")).toHaveCount(2);
+});
