@@ -7,6 +7,8 @@ export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
+  // All tests share one dev server, parallel workers make the suite flaky
+  workers: 1,
   reporter: [['html', { open: 'never' }], ['list']],
   use: {
     baseURL: "http://localhost:5173/",

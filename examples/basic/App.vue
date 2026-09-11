@@ -4,6 +4,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
 <template>
+  <main>
+    <h1>PDF Elements Demo</h1>
   <div class="app-shell">
     <AppToolbar
       :loading="loading"
@@ -54,6 +56,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
       @close="showElementsViewer = false"
     />
   </div>
+  </main>
 </template>
 
 <script lang="ts">
