@@ -52,6 +52,14 @@ async function getSharedWorker(pdfjs: PdfjsModule): Promise<PDFWorker> {
   return sharedWorker
 }
 
+function getSafePdfjsOptions(options: Record<string, unknown>) {
+  return {
+    ...options,
+    isEvalSupported: false,
+    enableScripting: false,
+  }
+}
+
 export function setWorkerPath(path: string) {
   workerSrcOverride = path
   sharedWorker = null
@@ -97,19 +105,20 @@ export async function readAsPDF(
 ): Promise<PDFDocumentProxy> {
   const pdfjs = await loadPdfjs()
   const worker = await getSharedWorker(pdfjs)
+  const pdfjsOptions = getSafePdfjsOptions(options)
   const isArrayBuffer = file instanceof ArrayBuffer
   const isView = ArrayBuffer.isView(file)
   const isBlob = typeof Blob !== 'undefined' && file instanceof Blob
 
   if (file && typeof file === 'object' && !isArrayBuffer && !isView && !isBlob) {
-    return pdfjs.getDocument({ ...(file as Record<string, unknown>), ...options, worker }).promise
+    return pdfjs.getDocument({ ...(file as Record<string, unknown>), ...pdfjsOptions, worker }).promise
   }
   if (typeof file === 'string') {
-    return pdfjs.getDocument({ url: file, ...options, worker }).promise
+    return pdfjs.getDocument({ url: file, ...pdfjsOptions, worker }).promise
   }
   if (isBlob) {
     const data = await readAsArrayBuffer(file as Blob)
-    return pdfjs.getDocument({ data, ...options, worker }).promise
+    return pdfjs.getDocument({ data, ...pdfjsOptions, worker }).promise
   }
   const data = isArrayBuffer
     ? (file as ArrayBuffer)
@@ -119,5 +128,5 @@ export async function readAsPDF(
         (file as ArrayBufferView).byteLength
       )
 
-  return pdfjs.getDocument({ data, ...options, worker }).promise
+  return pdfjs.getDocument({ data, ...pdfjsOptions, worker }).promise
 }
