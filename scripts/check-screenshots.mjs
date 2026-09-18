@@ -12,10 +12,12 @@ import { generateScreenshot, packageRoot, screenshotPath } from './generate-scre
 const maxDiffRatio = 0.001
 
 const diffPath = path.join(packageRoot, 'test-results', 'demo-screenshot-diff.png')
+const currentPath = path.join(packageRoot, 'test-results', 'demo-screenshot-current.png')
 
 async function main() {
   const committed = PNG.sync.read(await readFile(screenshotPath))
-  const current = PNG.sync.read(await generateScreenshot())
+  const currentImage = await generateScreenshot()
+  const current = PNG.sync.read(currentImage)
 
   if (committed.width !== current.width || committed.height !== current.height) {
     throw new Error(
@@ -25,8 +27,8 @@ async function main() {
     )
   }
 
-  const { width, height } = committed
-  const diff = new PNG({ width, height })
+  const {width, height} = committed
+  const diff = new PNG({width, height})
   const changedPixels = pixelmatch(committed.data, current.data, diff.data, width, height, {
     threshold: 0.1,
   })
@@ -40,11 +42,13 @@ async function main() {
     return
   }
 
-  await mkdir(path.dirname(diffPath), { recursive: true })
+  await mkdir(path.dirname(diffPath), {recursive: true})
+  await writeFile(currentPath, currentImage)
   await writeFile(diffPath, PNG.sync.write(diff))
 
   throw new Error(
     `${report}, above the allowed ${(maxDiffRatio * 100).toFixed(4)}%.\n` +
+    `Generated screenshot written to ${path.relative(packageRoot, currentPath)}.\n` +
     `Visual diff written to ${path.relative(packageRoot, diffPath)}.\n` +
     'If the change is expected, run "npm run screenshots:update" and commit the result.'
   )
