@@ -49,6 +49,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "screenshots:update": "node scripts/generate-screenshots.mjs",
+    "screenshots:check": "node scripts/check-screenshots.mjs",
     "lint": "eslint . --ext .vue,.ts,.js --max-warnings=0",
     "lint:fix": "eslint . --ext .vue,.ts,.js --fix"
   },
@@ -72,6 +73,8 @@
     "eslint-plugin-vue": "^10.8.0",
     "globals": "^17.4.0",
     "happy-dom": "^20.7.0",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0",
     "postcss": "^8.5.6",
     "rollup-plugin-visualizer": "^7.0.0",
     "typescript": "^6.0.2",
