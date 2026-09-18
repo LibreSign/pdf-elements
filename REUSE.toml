@@ -22,6 +22,7 @@ path = [
     "examples/**",
     "tests/**",
     "dist/**",
+    "img/**",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2025 LibreCode coop and contributors"
