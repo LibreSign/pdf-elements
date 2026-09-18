@@ -4,15 +4,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as pdfjs from 'pdfjs-dist'
 
-vi.mock('pdfjs-dist', () => ({
-  GlobalWorkerOptions: {
+vi.mock('pdfjs-dist', () => {
+  const GlobalWorkerOptions = {
     workerSrc: '/pdf.worker.min.mjs',
-  },
-  PDFWorker: class PDFWorker {},
-  getDocument: vi.fn(() => ({
+  }
+  const PDFWorker = class PDFWorker {}
+  const getDocument = vi.fn(() => ({
     promise: Promise.resolve({}),
-  })),
-}))
+  }))
+  const mockedModule = {
+    GlobalWorkerOptions,
+    PDFWorker,
+    getDocument,
+  }
+
+  return {
+    ...mockedModule,
+    default: mockedModule,
+  }
+})
 
 vi.mock('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url', () => ({
   default: '/pdf.worker.min.mjs',
