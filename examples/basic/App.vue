@@ -43,7 +43,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
           />
         </template>
 
-        <template #actions="{ onDelete }">
+        <template #actions="{ onDelete, onDuplicate }">
+          <DuplicateButton @duplicate="onDuplicate" />
           <DeleteButton @delete="onDelete" />
         </template>
       </PDFElements>
@@ -66,6 +67,7 @@ import AppToolbar from './components/AppToolbar.vue'
 import DocumentsList from './components/DocumentsList.vue'
 import SignatureBox from './components/SignatureBox.vue'
 import DeleteButton from './components/DeleteButton.vue'
+import DuplicateButton from './components/DuplicateButton.vue'
 import ElementsViewer from './components/ElementsViewer.vue'
 
 export default defineComponent({
@@ -76,6 +78,7 @@ export default defineComponent({
     DocumentsList,
     SignatureBox,
     DeleteButton,
+    DuplicateButton,
     ElementsViewer,
   },
   data() {

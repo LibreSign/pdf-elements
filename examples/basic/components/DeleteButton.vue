@@ -18,7 +18,7 @@ export default defineComponent({
 .delete-btn {
   border: none;
   background: transparent;
-  color: #ffffff;
+  color: currentColor;
   padding: 4px;
   border-radius: 4px;
   cursor: pointer;
