@@ -59,6 +59,13 @@ test("zoom a pdf element", async({page})=> {
 })
 
 test("duplicates a signature element", async ({ page }) => {
+  const original = await page.locator(".signature-box").boundingBox();
   await page.getByTitle("Duplicate").click();
   await expect(page.locator(".signature-box")).toHaveCount(2);
-});
+
+  const copy = await page.locator(".signature-box").nth(1).boundingBox();
+  expect(copy.width).toBe(original.width);
+  expect(copy.height).toBe(original.height);
+  expect(copy.x).toBeGreaterThan(original.x);
+  expect(copy.y).toBeGreaterThan(original.y);
+})
