@@ -21,7 +21,7 @@ export async function generateScreenshot() {
     const context = await browser.newContext({
       ...devices['Desktop Chrome'],
       locale: 'en-US',
-      viewport: { width: 1280, height: 900 },
+      viewport: { width: 900, height: 1000 },
     })
     const page = await context.newPage()
 
