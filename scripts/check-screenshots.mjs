@@ -20,9 +20,13 @@ async function main() {
   const current = PNG.sync.read(currentImage)
 
   if (committed.width !== current.width || committed.height !== current.height) {
+    await mkdir(path.dirname(currentPath), { recursive: true })
+    await writeFile(currentPath, currentImage)
+
     throw new Error(
       `Screenshot size changed: committed ${committed.width}x${committed.height}, ` +
-      `generated ${current.width}x${current.height}. ` +
+      `generated ${current.width}x${current.height}.\n` +
+      `Generated screenshot written to ${path.relative(packageRoot, currentPath)}.\n` +
       'Run "npm run screenshots:update" and commit the result.'
     )
   }
