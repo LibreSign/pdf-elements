@@ -21,7 +21,7 @@ export async function generateScreenshot() {
     const context = await browser.newContext({
       ...devices['Desktop Chrome'],
       locale: 'en-US',
-      viewport: { width: 900, height: 1000 },
+      viewport: { width: 840, height: 670 },
     })
     const page = await context.newPage()
 
@@ -30,8 +30,9 @@ export async function generateScreenshot() {
     await page.locator('canvas').first().waitFor()
     await page.getByRole('button', { name: 'Add Signature' }).click()
     await page.getByRole('button', { name: 'Click to place' }).waitFor()
-    await page.locator('.overlay').first().click({ position: { x: 100, y: 300 } })
+    await page.locator('.overlay').first().click({ position: { x: 140, y: 260 } })
     await page.locator('.signature-box').first().waitFor()
+    await page.getByRole('button', { name: 'Add Signature' }).waitFor()
 
     return await page.screenshot()
   } finally {
