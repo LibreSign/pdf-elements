@@ -9,7 +9,7 @@ A Vue 3 component for rendering PDFs with draggable and resizable element overla
 
 **[Demo](https://libresign.github.io/pdf-elements/)** · [Examples](examples/)
 
-<img width="754" height="607" alt="image" src="https://github.com/user-attachments/assets/65009896-21ab-4ec5-9548-2707f8d16cdf" />
+![The pdf-elements demo with a sample PDF loaded and a signature element placed on the first page](img/screenshot/demo.png)
 
 ## Development
 
