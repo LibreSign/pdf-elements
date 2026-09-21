@@ -30,7 +30,7 @@ export async function generateScreenshot() {
     await page.locator('canvas').first().waitFor()
     await page.getByRole('button', { name: 'Add Signature' }).click()
     await page.getByRole('button', { name: 'Click to place' }).waitFor()
-    await page.locator('.overlay').first().click({ position: { x: 140, y: 260 } })
+    await page.locator('.overlay').first().click({ position: { x: 160, y: 260 } })
     await page.locator('.signature-box').first().waitFor()
     await page.getByRole('button', { name: 'Add Signature' }).waitFor()
 
