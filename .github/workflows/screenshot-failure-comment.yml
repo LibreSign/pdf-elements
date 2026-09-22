@@ -116,8 +116,7 @@ jobs:
               total_pixels="$(jq -r '.totalPixels' screenshot-artifacts/demo-screenshot-report.json)"
               ratio="$(jq -r '.ratio * 100' screenshot-artifacts/demo-screenshot-report.json)"
               max_ratio="$(jq -r '.maxDiffRatio * 100' screenshot-artifacts/demo-screenshot-report.json)"
-              summary_line="**Difference:** $(printf '%.4f' "$ratio")% · **Allowed:** $(printf '%.4f' "$max_ratio")%  
-$changed_pixels of $total_pixels pixels differ."
+              summary_line="$(printf '**Difference:** %.4f%% · **Allowed:** %.4f%%  \\n%s of %s pixels differ.' "$ratio" "$max_ratio" "$changed_pixels" "$total_pixels")"
             elif [[ "$report_type" == "size" ]]; then
               committed_size="$(jq -r '"\(.committed.width)x\(.committed.height)"' screenshot-artifacts/demo-screenshot-report.json)"
               generated_size="$(jq -r '"\(.generated.width)x\(.generated.height)"' screenshot-artifacts/demo-screenshot-report.json)"
