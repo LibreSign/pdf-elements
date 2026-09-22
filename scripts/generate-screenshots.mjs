@@ -34,7 +34,14 @@ export async function generateScreenshot() {
     await page.locator('.signature-box').first().waitFor()
     await page.getByRole('button', { name: 'Add Signature' }).waitFor()
 
-    return await page.screenshot()
+    await page.evaluate(async () => {
+      await globalThis.document.fonts.ready
+      await new Promise((resolve) => {
+        globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))
+      })
+    })
+
+    return await page.screenshot({ animations: 'disabled' })
   } finally {
     await browser.close()
     await server.close()
