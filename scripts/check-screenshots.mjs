@@ -11,14 +11,21 @@ import { generateScreenshot, packageRoot, screenshotPath } from './generate-scre
 
 const maxDiffRatio = 0.001
 
-const diffPath = path.join(packageRoot, 'test-results', 'demo-screenshot-diff.png')
-const currentPath = path.join(packageRoot, 'test-results', 'demo-screenshot-current.png')
-const expectedPath = path.join(packageRoot, 'test-results', 'demo-screenshot-expected.png')
+const resultsDir = path.join(packageRoot, 'test-results')
+const diffPath = path.join(resultsDir, 'demo-screenshot-diff.png')
+const currentPath = path.join(resultsDir, 'demo-screenshot-current.png')
+const expectedPath = path.join(resultsDir, 'demo-screenshot-expected.png')
+const reportPath = path.join(resultsDir, 'demo-screenshot-report.json')
 
 async function writeComparisonImages(committedImage, currentImage) {
-  await mkdir(path.dirname(currentPath), { recursive: true })
+  await mkdir(resultsDir, { recursive: true })
   await writeFile(expectedPath, committedImage)
   await writeFile(currentPath, currentImage)
+}
+
+async function writeReport(report) {
+  await mkdir(resultsDir, { recursive: true })
+  await writeFile(reportPath, JSON.stringify(report, null, 2))
 }
 
 async function main() {
@@ -29,6 +36,11 @@ async function main() {
 
   if (committed.width !== current.width || committed.height !== current.height) {
     await writeComparisonImages(committedImage, currentImage)
+    await writeReport({
+      type: 'size',
+      committed: { width: committed.width, height: committed.height },
+      generated: { width: current.width, height: current.height },
+    })
 
     throw new Error(
       `Screenshot size changed: committed ${committed.width}x${committed.height}, ` +
@@ -56,6 +68,13 @@ async function main() {
 
   await writeComparisonImages(committedImage, currentImage)
   await writeFile(diffPath, PNG.sync.write(diff))
+  await writeReport({
+    type: 'pixels',
+    changedPixels,
+    totalPixels,
+    ratio,
+    maxDiffRatio,
+  })
 
   throw new Error(
     `${report}, above the allowed ${(maxDiffRatio * 100).toFixed(4)}%.\n` +
