@@ -43,7 +43,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
           REPORT_BRANCH: screenshot-reports
         shell: bash
         run: |
@@ -106,6 +105,7 @@ jobs:
           fi
 
           raw_base="https://raw.githubusercontent.com/$GH_REPO/$REPORT_BRANCH/$report_path"
+          run_url="https://github.com/$GH_REPO/actions/runs/$RUN_ID"
           marker='<!-- readme-screenshot-report -->'
 
           summary_line="Screenshot output differs from the committed README image."
@@ -116,8 +116,7 @@ jobs:
               total_pixels="$(jq -r '.totalPixels' screenshot-artifacts/demo-screenshot-report.json)"
               ratio="$(jq -r '.ratio * 100' screenshot-artifacts/demo-screenshot-report.json)"
               max_ratio="$(jq -r '.maxDiffRatio * 100' screenshot-artifacts/demo-screenshot-report.json)"
-              summary_line="**Difference:** $(printf '%.4f' "$ratio")% · **Allowed:** $(printf '%.4f' "$max_ratio")%  
-$changed_pixels of $total_pixels pixels differ."
+              summary_line="$(printf '**Difference:** %.4f%% · **Allowed:** %.4f%%  \\n%s of %s pixels differ.' "$ratio" "$max_ratio" "$changed_pixels" "$total_pixels")"
             elif [[ "$report_type" == "size" ]]; then
               committed_size="$(jq -r '"\(.committed.width)x\(.committed.height)"' screenshot-artifacts/demo-screenshot-report.json)"
               generated_size="$(jq -r '"\(.generated.width)x\(.generated.height)"' screenshot-artifacts/demo-screenshot-report.json)"
@@ -131,7 +130,7 @@ $changed_pixels of $total_pixels pixels differ."
 
           $summary_line
 
-          [View workflow run]($RUN_URL)
+          [View workflow run]($run_url)
 
           ### Visual diff
           EOF
@@ -166,7 +165,7 @@ $changed_pixels of $total_pixels pixels differ."
 
           If the visual change is expected, run:
 
-          `npm run screenshots:update`
+          \`npm run screenshots:update\`
           EOF
 
           existing_comment_id="$(
@@ -187,7 +186,7 @@ $changed_pixels of $total_pixels pixels differ."
 
           $summary_line
 
-          [Open pull request](https://github.com/$GH_REPO/pull/$PR_NUMBER) · [View workflow run]($RUN_URL)
+          [Open pull request](https://github.com/$GH_REPO/pull/$PR_NUMBER) · [View workflow run]($run_url)
 
           ### Visual diff
           EOF
