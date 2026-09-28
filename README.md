@@ -13,7 +13,7 @@ A Vue 3 PDF viewer for building interactive document workflows with draggable, r
 
 Use it to build signature placement, form-field positioning, annotations, review tools, document preparation flows and other PDF experiences where users need to place or manipulate elements on top of a document.
 
-**[Try the live demo](https://libresign.github.io/pdf-elements/)** · **[Install from npm](https://www.npmjs.com/package/@libresign/pdf-elements)** · [Examples](examples/) · [API](docs/API.md) · [Contributing](CONTRIBUTING.md)
+**[Try the live demo](https://libresign.github.io/pdf-elements/)** · [Getting started](docs/GETTING_STARTED.md) · [API](docs/API.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 
 ![The pdf-elements demo with a sample PDF loaded and a signature element placed on the first page](img/screenshot/demo.png)
 
@@ -35,53 +35,6 @@ PDF Elements provides that interaction layer as a reusable Vue 3 component.
 
 PDF Elements does **not** cryptographically sign or modify the PDF by itself. It focuses on the browser interaction layer, so it can be connected to signing, storage, form or document-processing backends.
 
-## Install
-
-```bash
-npm install @libresign/pdf-elements
-```
-
-## Quick start
-
-```vue
-<script setup lang="ts">
-import { ref } from 'vue'
-import PDFElements from '@libresign/pdf-elements'
-
-const pdf = ref()
-const files = ref([
-  'https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf',
-])
-
-function addSignatureField() {
-  pdf.value?.startAddingElement({
-    type: 'signature',
-    width: 160,
-    height: 48,
-    label: 'Signature',
-  })
-}
-</script>
-
-<template>
-  <button @click="addSignatureField">
-    Add signature field
-  </button>
-
-  <PDFElements
-    ref="pdf"
-    :init-files="files"
-    :init-file-names="['sample.pdf']"
-  >
-    <template #element-signature="{ object }">
-      <div>{{ object.label }}</div>
-    </template>
-  </PDFElements>
-</template>
-```
-
-For a fuller integration with custom controls, actions and document handling, see the [basic example](examples/basic/).
-
 ## Use cases
 
 PDF Elements can be used for:
@@ -95,6 +48,7 @@ PDF Elements can be used for:
 
 ## Documentation
 
+- [Getting started](docs/GETTING_STARTED.md)
 - [API reference](docs/API.md)
 - [Basic example](examples/basic/)
 - [Contributing](CONTRIBUTING.md)
