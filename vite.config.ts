@@ -37,6 +37,7 @@ export default defineConfig(async ({ command, mode }) => {
 
   return {
     root: isDemo ? 'examples' : undefined,
+    base: mode === 'demo' ? './' : undefined,
     server: {
       host: '0.0.0.0',
     },
