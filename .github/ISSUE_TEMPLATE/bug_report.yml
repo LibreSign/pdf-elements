@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: Bug report
+description: Report a reproducible problem in PDF Elements
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve PDF Elements. Please provide a minimal, reproducible report and do not upload confidential PDFs.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+      placeholder: Tell us what you observed and what should have happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest set of steps, code or sample needed to reproduce the issue.
+      placeholder: |
+        1. Render PDFElements with...
+        2. Add an element...
+        3. Resize...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PDF Elements version
+      placeholder: e.g. 1.2.7
+    validations:
+      required: true
+
+  - type: input
+    id: vue
+    attributes:
+      label: Vue version
+      placeholder: e.g. 3.5.28
+
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and operating system
+      placeholder: e.g. Firefox 143 on Fedora 42
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output or screenshots
+      description: Paste relevant logs or drag screenshots here. Remove secrets and sensitive data.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for duplicates.
+          required: true
+        - label: I removed confidential or sensitive information from the report.
+          required: true

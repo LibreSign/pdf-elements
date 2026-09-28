@@ -5,119 +5,50 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # PDF Elements
 
-A Vue 3 component for rendering PDFs with draggable and resizable element overlays.
+[![npm version](https://img.shields.io/npm/v/@libresign/pdf-elements)](https://www.npmjs.com/package/@libresign/pdf-elements)
+[![Node CI](https://github.com/LibreSign/pdf-elements/actions/workflows/node.yml/badge.svg)](https://github.com/LibreSign/pdf-elements/actions/workflows/node.yml)
+[![Tests](https://github.com/LibreSign/pdf-elements/actions/workflows/tests.yml/badge.svg)](https://github.com/LibreSign/pdf-elements/actions/workflows/tests.yml)
 
-**[Demo](https://libresign.github.io/pdf-elements/)** · [Examples](examples/)
+A Vue 3 PDF viewer for building interactive document workflows with draggable, resizable and fully customizable overlay elements.
+
+Use it to build signature placement, form-field positioning, annotations, review tools, document preparation flows and other PDF experiences where users need to place or manipulate elements on top of a document.
+
+**[Try the live demo](https://libresign.github.io/pdf-elements/)** · [Getting started](docs/GETTING_STARTED.md) · [API](docs/API.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 
 ![The pdf-elements demo with a sample PDF loaded and a signature element placed on the first page](img/screenshot/demo.png)
 
-## Development
+## Why PDF Elements?
 
-- `npm run dev` - Run the demo with Vite
-- `npm run build` - Build the library (ESM + types)
-- `npm run build:demo` - Build the demo to `dist-demo`
+PDF rendering is only part of many document workflows. Applications often also need to let users place, move, resize, inspect or remove interactive elements over PDF pages.
 
-## API
+PDF Elements provides that interaction layer as a reusable Vue 3 component.
 
-### Props
+- **PDF.js-based rendering** for browser PDF viewing
+- **Draggable and resizable overlays** positioned directly on PDF pages
+- **Custom element types** rendered through Vue slots
+- **Interactive placement mode** for adding elements to a document
+- **Multiple PDF documents** in the same component
+- **Read-only mode** for review and presentation flows
+- **Custom action toolbars** for host-application controls
+- **Themeable UI** using CSS variables
+- **Typed public API** for TypeScript projects
 
-| Prop | Type | Default | Description |
-|------|------|---------|-------------|
-| `width` | String | `'100%'` | Container width |
-| `height` | String | `'100%'` | Container height |
-| `initFiles` | Array | `[]` | PDF files to load |
-| `initFileNames` | Array | `[]` | Names for the PDF files |
-| `initialScale` | Number | `1` | Initial zoom scale |
-| `showPageFooter` | Boolean | `true` | Show page footer with document name and page number |
-| `hideSelectionUI` | Boolean | `false` | Hide selection handles and actions UI |
-| `showSelectionHandles` | Boolean | `true` | Show resize/move handles on selected elements |
-| `showElementActions` | Boolean | `true` | Show action buttons on selected elements |
-| `readOnly` | Boolean | `false` | Disable drag, resize, and actions for elements |
-| `ignoreClickOutsideSelectors` | Array | `[]` | CSS selectors that keep the selection active when clicking outside the element |
-| `pageCountFormat` | String | `'{currentPage} of {totalPages}'` | Format string for page counter |
-| `autoFitZoom` | Boolean | `false` | Automatically adjust zoom to fit viewport on window resize |
-| `pdfjsOptions` | Object | `{}` | Options passed to PDF.js `getDocument` (advanced) |
+PDF Elements does **not** cryptographically sign or modify the PDF by itself. It focuses on the browser interaction layer, so it can be connected to signing, storage, form or document-processing backends.
 
-### PDF.js options
+## Use cases
 
-`pdfjsOptions` is forwarded to PDF.js `getDocument(...)` and can be used to tune performance.
+PDF Elements can be used for:
 
-Example:
+- electronic-signature and document-preparation interfaces;
+- signature, initials, date or text placement;
+- PDF annotation and review tools;
+- document form builders;
+- approval and document workflows;
+- applications that need coordinates and sizing for PDF overlays.
 
-```ts
-<PDFElements
-	:pdfjs-options="{
-		disableFontFace: true,
-		disableRange: true,
-		disableStream: true,
-	}"
-/>
-```
+## Documentation
 
-### Events
-
-- `pdf-elements:end-init` - Emitted when PDF is loaded
-- `pdf-elements:adding-ended` - Emitted when interactive placement ends. Payload: `{ reason: 'placed', object, docIndex, pageIndex }` on success or `{ reason: 'cancelled' }` when the placement is cancelled.
-
-### Exposed methods
-
-- `startAddingElement(templateObject)` - Starts interactive placement mode.
-- `cancelAdding()` - Cancels the current placement session and emits `pdf-elements:adding-ended` with `{ reason: 'cancelled' }` when a session was active.
-
-### Slots
-
-- `element-{type}` - Custom element rendering (e.g., `element-signature`)
-- `custom` - Fallback for elements without specific type
-- `actions` - Custom action buttons
-
-#### `actions` slot props
-
-The `actions` slot receives:
-
-- `object`
-- `onDelete`
-- `onDuplicate`
-- `toolbarClass` (`pdf-elements-actions-toolbar`)
-- `actionClass` (`pdf-elements-action-btn`)
-- `actionAttrs` (`{ 'data-pdf-elements-action': 'true' }`)
-
-Use these hooks to style third-party button components consistently (for example, Nextcloud `NcButton`) without relying on internal scoped selectors.
-
-Example:
-
-```vue
-<template #actions="slotProps">
-	<NcButton
-		:class="slotProps.actionClass"
-		v-bind="slotProps.actionAttrs"
-		type="button"
-		variant="tertiary"
-		@click.stop="slotProps.onDuplicate"
-	>
-		Duplicate
-	</NcButton>
-</template>
-```
-
-### Theme variables
-
-Action toolbar and action buttons can be themed via CSS variables and follow host theme tokens by default.
-
-| Variable | Description |
-|---|---|
-| `--pdf-elements-toolbar-gap` | Toolbar button gap |
-| `--pdf-elements-toolbar-padding` | Toolbar padding |
-| `--pdf-elements-toolbar-background` | Toolbar background color |
-| `--pdf-elements-toolbar-color` | Toolbar text/icon color |
-| `--pdf-elements-toolbar-border-color` | Toolbar border color |
-| `--pdf-elements-toolbar-border-radius` | Toolbar border radius |
-| `--pdf-elements-toolbar-shadow` | Toolbar shadow |
-| `--pdf-elements-action-btn-border` | Action button border |
-| `--pdf-elements-action-btn-background` | Action button background |
-| `--pdf-elements-action-btn-color` | Action button text/icon color |
-| `--pdf-elements-action-btn-padding` | Action button padding |
-| `--pdf-elements-action-btn-radius` | Action button border radius |
-| `--pdf-elements-action-btn-min-height` | Action button min height |
-| `--pdf-elements-action-btn-min-width` | Action button min width |
-| `--pdf-elements-action-btn-shadow` | Action button shadow |
-| `--pdf-elements-action-btn-hover-background` | Action button hover background |
+- [Getting started](docs/GETTING_STARTED.md)
+- [API reference](docs/API.md)
+- [Basic example](examples/basic/)
+- [Contributing](CONTRIBUTING.md)

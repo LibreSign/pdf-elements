@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+blank_issues_enabled: true
+contact_links:
+  - name: Live demo
+    url: https://libresign.github.io/pdf-elements/
+    about: Reproduce and explore PDF Elements behavior in the browser.
+  - name: LibreSign
+    url: https://github.com/LibreSign/libresign
+    about: Report issues that belong to the LibreSign application rather than the PDF Elements component.
