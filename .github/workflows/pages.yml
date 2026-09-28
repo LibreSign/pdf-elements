@@ -38,9 +38,11 @@ jobs:
         run: |
           npm ci
           npm run build:demo
+          touch dist-demo/.nojekyll
 
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
             branch: gh-pages
             folder: dist-demo
+            target-folder: docs
