@@ -47,6 +47,17 @@ export interface PDFElementsPublicApi {
   addObjectToPage: (object: PDFElementObject, pageIndex?: number, docIndex?: number) => boolean
   getAllObjects: (docIndex?: number) => PDFElementObject[]
   updateObject: (docIndex: number, objectId: string, payload: Partial<PDFElementObject>) => void
+  /**
+   * Moves an overlay object to another page in the same document without emitting
+   * `pdf-elements:delete-object`. Used for internal restoration (for example form
+   * editor spill rollback) so hosts do not treat the move as a user delete.
+   */
+  moveObjectToPage: (
+    docIndex: number,
+    objectId: string,
+    pageIndex: number,
+    payload?: Partial<PDFElementObject>
+  ) => boolean
   deleteObject: (docIndex: number, objectId: string) => void
   duplicateObject: (docIndex: number, objectId: string) => void
   cancelAdding: () => void
