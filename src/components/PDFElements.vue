@@ -1196,6 +1196,52 @@ export default defineComponent({
       this.updateObjectInPage(docIndex, currentPageIndex, objectId, payload)
     },
 
+    moveObjectToPage(docIndex, objectId, pageIndex, payload = {}) {
+      if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return false
+      const doc = this.pdfDocuments[docIndex]
+      if (pageIndex < 0 || pageIndex >= doc.pages.length) return false
+
+      const cacheKey = `${docIndex}-${objectId}`
+      let currentPageIndex = this.objectIndexCache[cacheKey]
+      if (currentPageIndex === undefined) {
+        currentPageIndex = findObjectPageIndex(doc, objectId)
+        if (currentPageIndex !== undefined) {
+          this.objectIndexCache[cacheKey] = currentPageIndex
+        }
+      }
+      if (currentPageIndex === undefined) return false
+
+      const currentObjects = doc.allObjects[currentPageIndex]
+      const objectIndex = currentObjects?.findIndex((object) => object.id === objectId) ?? -1
+      if (!currentObjects || objectIndex === -1) return false
+
+      const currentObject = currentObjects[objectIndex]
+      const nextObject = {
+        ...currentObject,
+        ...payload,
+        id: objectId,
+      }
+      const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, pageIndex)
+      if (
+        nextObject.x < 0
+        || nextObject.y < 0
+        || nextObject.x + nextObject.width > pageWidth
+        || nextObject.y + nextObject.height > pageHeight
+      ) {
+        return false
+      }
+
+      if (currentPageIndex === pageIndex) {
+        currentObjects.splice(objectIndex, 1, nextObject)
+        return true
+      }
+
+      currentObjects.splice(objectIndex, 1)
+      doc.allObjects[pageIndex].push(nextObject)
+      this.objectIndexCache[cacheKey] = pageIndex
+      return true
+    },
+
     deleteObject(docIndex, objectId) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       const doc = this.pdfDocuments[docIndex]

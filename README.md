@@ -13,7 +13,7 @@ A Vue 3 PDF viewer for building interactive document workflows with draggable, r
 
 Use it to build signature placement, form-field positioning, annotations, review tools, document preparation flows and other PDF experiences where users need to place or manipulate elements on top of a document.
 
-**[Try the live demo](https://libresign.github.io/pdf-elements/)** · [Getting started](docs/GETTING_STARTED.md) · [API](docs/API.md) · [Form model](docs/FORM_MODEL.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
+**[Try the live demo](https://libresign.github.io/pdf-elements/)** · [Getting started](docs/GETTING_STARTED.md) · [API](docs/API.md) · [Form model](docs/FORM_MODEL.md) · [Form editing](docs/FORM_EDITING.md) · [Examples](examples/) · [Contributing](CONTRIBUTING.md)
 
 ![The pdf-elements demo with a sample PDF loaded and a signature element placed on the first page](img/screenshot/demo.png)
 
@@ -51,5 +51,6 @@ PDF Elements can be used for:
 - [Getting started](docs/GETTING_STARTED.md)
 - [API reference](docs/API.md)
 - [Form field and widget model](docs/FORM_MODEL.md)
+- [Form field editing](docs/FORM_EDITING.md)
 - [Basic example](examples/basic/)
 - [Contributing](CONTRIBUTING.md)
