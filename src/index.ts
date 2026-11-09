@@ -5,6 +5,29 @@ import type { App } from 'vue'
 import PDFElements from './components/PDFElements.vue'
 
 export { ensureWorkerReady, setWorkerPath } from './utils/asyncReader'
+export {
+  addWidgetToField,
+  createFormField,
+  createFormFieldId,
+  createFormModel,
+  createFormWidget,
+  createFormWidgetId,
+  elementObjectToFormWidgetPlacement,
+  formWidgetToElementObject,
+  getFieldForWidget,
+  getFormFieldById,
+  getFormWidgetById,
+  getWidgetsForField,
+  parseFormModel,
+  serializeFormModel,
+  validateFormModelRelationships,
+} from './utils/formModel'
+export type {
+  CreateFormFieldInput,
+  CreateFormWidgetInput,
+  FormModelRelationshipIssue,
+  FormWidgetToElementOptions,
+} from './utils/formModel'
 export type {
   PDFDocumentEntry,
   PDFElementObject,
@@ -13,6 +36,15 @@ export type {
   PDFElementsAddingEndedPlacedPayload,
   PDFElementsAddingEndedReason,
   PDFElementsPublicApi,
+  PDFFormField,
+  PDFFormFieldId,
+  PDFFormFieldKnownType,
+  PDFFormFieldOption,
+  PDFFormFieldType,
+  PDFFormFieldValue,
+  PDFFormModel,
+  PDFFormWidget,
+  PDFFormWidgetId,
 } from './types'
 
 const install = (app: App) => {
