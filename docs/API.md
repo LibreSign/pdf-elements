@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 For the logical field / visual widget data model (plain serializable types, relationships and overlay coexistence), see [Form field and widget model](./FORM_MODEL.md).
 
+For generic form-field editing on top of that model (create/place/select/update, multi-widget fields, overlay sync), see [Form field editing](./FORM_EDITING.md).
+
 ## Props
 
 | Prop | Type | Default | Description |
@@ -49,6 +51,13 @@ For the logical field / visual widget data model (plain serializable types, rela
 
 - `startAddingElement(templateObject)` - Starts interactive placement mode.
 - `cancelAdding()` - Cancels the current placement session and emits `pdf-elements:adding-ended` with `{ reason: 'cancelled' }` when a session was active.
+- `addObjectToPage(object, pageIndex?, docIndex?)` - Places an overlay object programmatically.
+- `getAllObjects(docIndex?)` - Returns overlay objects for a document.
+- `updateObject(docIndex, objectId, payload)` - Updates overlay geometry or properties.
+- `moveObjectToPage(docIndex, objectId, pageIndex, payload?)` - Moves an object between pages without emitting `pdf-elements:delete-object`.
+- `deleteObject(docIndex, objectId)` / `duplicateObject(docIndex, objectId)` - Overlay lifecycle helpers.
+
+Form-field editing is not stored inside the Vue component. Use `createFormEditor({ overlay })` from the package entry and pass these methods through a `FormEditorOverlayAdapter`. See [Form field editing](./FORM_EDITING.md).
 
 ## Slots
 
