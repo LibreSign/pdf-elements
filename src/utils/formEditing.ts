@@ -311,9 +311,11 @@ export function createFormEditorOverlayAdapter(
         return snapshot.pageIndex === pageIndex
       })
     },
-    moveObjectToPage: (docIndex, objectId, pageIndex, payload) => (
-      api.moveObjectToPage(docIndex, objectId, pageIndex, payload)
-    ),
+    moveObjectToPage: (docIndex, objectId, pageIndex, payload) => {
+      const move = api.moveObjectToPage
+      if (typeof move !== 'function') return false
+      return move(docIndex, objectId, pageIndex, payload)
+    },
     updateObject: (docIndex, objectId, payload) => {
       const before = api.getAllObjects(docIndex)
         .find((entry) => entry.id === objectId) as OverlayObjectSnapshot | undefined
@@ -350,18 +352,32 @@ export function createFormEditorOverlayAdapter(
         ) {
           return runInternalMutation(() => {
             // Prefer silent page restore so hosts do not treat rollback as a user delete.
+            const move = api.moveObjectToPage
             if (
-              typeof api.moveObjectToPage === 'function'
-              && api.moveObjectToPage(docIndex, objectId, previousPageIndex, previous)
+              typeof move === 'function'
+              && move(docIndex, objectId, previousPageIndex, previous)
             ) {
               return false
             }
             // Fallback when moveObjectToPage is missing or returns false.
             // Hosts must honor isInternalMutation() if they sync delete-object → removeWidget.
+            const spilledPageIndex = after.pageIndex
+            const spilledGeometry = {
+              x: after.x,
+              y: after.y,
+              width: after.width,
+              height: after.height,
+            }
             api.deleteObject(docIndex, objectId)
             const restored = toPlainOverlayElement(before, previous)
             restored.id = objectId
-            api.addObjectToPage(restored, previousPageIndex, docIndex)
+            if (api.addObjectToPage(restored, previousPageIndex, docIndex)) {
+              return false
+            }
+            // Keep a visual if the original page rejects the restore.
+            const spilled = toPlainOverlayElement(after, spilledGeometry)
+            spilled.id = objectId
+            api.addObjectToPage(spilled, spilledPageIndex, docIndex)
             return false
           })
         }
@@ -751,12 +767,14 @@ export function createFormEditor(
     }
     if (object.id) widgetInput.elementId = object.id
 
-    pendingPlacement = null
     // Overlay already contains the placed object; only update the form model.
-    return placeWidget(widgetInput, {
+    // Keep pendingPlacement until place succeeds so hosts can retry or cancel.
+    const widget = placeWidget(widgetInput, {
       syncOverlay: false,
       bridgeOptions,
     })
+    pendingPlacement = null
+    return widget
   }
 
   const cancelPlaceWidget = () => {
