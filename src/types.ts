@@ -51,8 +51,9 @@ export interface PDFElementsPublicApi {
    * Moves an overlay object to another page in the same document without emitting
    * `pdf-elements:delete-object`. Used for internal restoration (for example form
    * editor spill rollback) so hosts do not treat the move as a user delete.
+   * Optional for 1.x typed wrappers; {@link PDFElements} implements it.
    */
-  moveObjectToPage: (
+  moveObjectToPage?: (
     docIndex: number,
     objectId: string,
     pageIndex: number,
