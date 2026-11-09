@@ -22,12 +22,28 @@ export {
   serializeFormModel,
   validateFormModelRelationships,
 } from './utils/formModel'
+export {
+  createFormEditor,
+  createFormEditorOverlayAdapter,
+} from './utils/formEditing'
 export type {
   CreateFormFieldInput,
   CreateFormWidgetInput,
   FormModelRelationshipIssue,
   FormWidgetToElementOptions,
 } from './utils/formModel'
+export type {
+  BeginPlaceWidgetInput,
+  CompleteWidgetPlacementInput,
+  CreateFormEditorOptions,
+  FormEditorAddObjectResult,
+  FormEditorOverlayAdapter,
+  FormEditorSelection,
+  FormFieldUpdate,
+  FormWidgetUpdate,
+  PDFFormEditor,
+  PlaceFormWidgetOptions,
+} from './utils/formEditing'
 export type {
   PDFDocumentEntry,
   PDFElementObject,
