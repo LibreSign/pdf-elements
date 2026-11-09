@@ -51,3 +51,105 @@ export interface PDFElementsPublicApi {
   duplicateObject: (docIndex: number, objectId: string) => void
   cancelAdding: () => void
 }
+
+/**
+ * Stable identifier for a logical form field.
+ * Fields hold shared properties; visual placement lives on widgets.
+ */
+export type PDFFormFieldId = string
+
+/**
+ * Stable identifier for a visual form widget.
+ * A widget is one rectangle on one page belonging to a field.
+ */
+export type PDFFormWidgetId = string
+
+/**
+ * Well-known field types. Consumers may also use any other string for
+ * unknown or future types without losing identity.
+ */
+export type PDFFormFieldKnownType =
+  | 'text'
+  | 'checkbox'
+  | 'radio'
+  | 'dropdown'
+  | 'listbox'
+  | 'signature'
+  | 'button'
+
+/**
+ * Field type string. Known values are listed in {@link PDFFormFieldKnownType};
+ * arbitrary strings remain valid for forward compatibility.
+ */
+export type PDFFormFieldType = PDFFormFieldKnownType | (string & {})
+
+/**
+ * Plain serializable field value. Prefer primitives and string arrays so the
+ * model can be persisted without Vue, DOM or PDF.js objects.
+ */
+export type PDFFormFieldValue = string | number | boolean | string[] | null
+
+/**
+ * Choice option for dropdown, listbox, radio and similar fields.
+ */
+export interface PDFFormFieldOption {
+  value: string
+  label?: string
+  disabled?: boolean
+}
+
+/**
+ * Logical form field. Shared properties live here; page coordinates do not.
+ *
+ * One field may reference many widgets (radio groups, repeated appearances,
+ * the same field on different pages).
+ */
+export interface PDFFormField {
+  id: PDFFormFieldId
+  type: PDFFormFieldType
+  name: string
+  value?: PDFFormFieldValue
+  defaultValue?: PDFFormFieldValue
+  required?: boolean
+  readOnly?: boolean
+  options?: PDFFormFieldOption[]
+  /** Ordered widget ids that belong to this field. */
+  widgetIds: PDFFormWidgetId[]
+  /** Extensible bag for non-core data. Keep host-specific workflow data here. */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Visual widget for a form field. Placement and page belong here only.
+ */
+export interface PDFFormWidget {
+  id: PDFFormWidgetId
+  fieldId: PDFFormFieldId
+  pageIndex: number
+  /** Optional when the model is already scoped to a single document. */
+  docIndex?: number
+  x: number
+  y: number
+  width: number
+  height: number
+  /**
+   * On-value for this appearance when a field has several widgets
+   * (for example each radio button in a group).
+   */
+  exportValue?: string
+  /**
+   * Optional link to a {@link PDFElementObject} id used by the overlay editor.
+   * Lets form widgets coexist with generic non-form overlays.
+   */
+  elementId?: string
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Plain serializable form document model: logical fields plus visual widgets.
+ * Independent from Vue component state, DOM nodes and PDF.js runtime objects.
+ */
+export interface PDFFormModel {
+  fields: PDFFormField[]
+  widgets: PDFFormWidget[]
+}

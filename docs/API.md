@@ -5,6 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # PDF Elements API
 
+For the logical field / visual widget data model (plain serializable types, relationships and overlay coexistence), see [Form field and widget model](./FORM_MODEL.md).
+
 ## Props
 
 | Prop | Type | Default | Description |
