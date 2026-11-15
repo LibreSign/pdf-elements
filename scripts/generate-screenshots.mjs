@@ -16,8 +16,9 @@ export async function generateScreenshot() {
   const server = await createServer()
   await server.listen()
 
-  const browser = await chromium.launch()
+  let browser
   try {
+    browser = await chromium.launch()
     const context = await browser.newContext({
       ...devices['Desktop Chrome'],
       locale: 'en-US',
@@ -43,8 +44,11 @@ export async function generateScreenshot() {
 
     return await page.screenshot({ animations: 'disabled' })
   } finally {
-    await browser.close()
-    await server.close()
+    try {
+      await browser?.close()
+    } finally {
+      await server.close()
+    }
   }
 }
 
