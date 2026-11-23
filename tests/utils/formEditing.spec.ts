@@ -314,6 +314,50 @@ describe('createFormEditor', () => {
     expect(editor.getSnapshot()).toEqual(serializeFormModel(editor.getModel()))
   })
 
+  it('rejects lossy values in the live model instead of snapshotting them', () => {
+    const editor = createFormEditor()
+    const field = editor.createField({ type: 'text', name: 'x', value: 42, metadata: { source: 'import' } })
+    editor.placeWidget({ fieldId: field.id, pageIndex: 0, x: 1, y: 1, width: 10, height: 10 })
+
+    expect(editor.getSnapshot().fields[0]).toMatchObject({ value: 42, metadata: { source: 'import' } })
+
+    const model = editor.getModel()
+    model.fields[0].value = Infinity
+    expect(() => editor.getSnapshot()).toThrow()
+    model.fields[0].value = NaN
+    expect(() => editor.getSnapshot()).toThrow()
+    model.fields[0].value = 42
+
+    model.fields[0].metadata = { fn: () => 42 }
+    expect(() => editor.getSnapshot()).toThrow(/JSON/)
+    model.fields[0].metadata = { date: new Date() }
+    expect(() => editor.getSnapshot()).toThrow(/JSON/)
+    model.fields[0].metadata = { source: 'import' }
+
+    model.widgets[0].x = Infinity
+    expect(() => editor.getSnapshot()).toThrow()
+  })
+
+  it('keeps widget-owned overlay identity and geometry when bridge extras conflict', () => {
+    const { adapter, objects } = createOverlayAdapter()
+    const editor = createFormEditor({ overlay: adapter })
+    const field = editor.createField({ type: 'text', name: 'raw' })
+    const widget = editor.placeWidget(
+      { fieldId: field.id, pageIndex: 0, docIndex: 0, x: 1, y: 2, width: 10, height: 12 },
+      { bridgeOptions: { extra: { id: 'fake', x: 999, y: 999, width: 1, height: 1, icon: 'pen' } } }
+    )
+
+    expect(objects[0]).toMatchObject({
+      id: widget.elementId,
+      x: 1,
+      y: 2,
+      width: 10,
+      height: 12,
+      icon: 'pen',
+    })
+    expect(widget.elementId).not.toBe('fake')
+  })
+
   it('does not attach form editing state to Vue-like hosts', () => {
     const editor = createFormEditor()
     expect(editor).not.toHaveProperty('$')

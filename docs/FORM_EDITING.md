@@ -92,7 +92,20 @@ editor.syncFromOverlay(object, { pageIndex, docIndex })
 
 Matching uses `widget.elementId`. `widget.id` is used only when `elementId` is absent.
 
-When deleting from the overlay UI, listen for `pdf-elements:delete-object` and call `editor.removeWidget(...)` (or `removeField`) so the model stays aligned. Skip that removal while `overlay.isInternalMutation?.()` is true: spill rollback may restore page membership without a user delete. Prefer `createFormEditorOverlayAdapter`, which uses `moveObjectToPage` (no delete event) for that restore.
+When deleting from the overlay UI, listen for `pdf-elements:delete-object` and call `editor.removeWidget(...)` (or `removeField`) so the model stays aligned. Skip that removal while the **adapter** reports an internal mutation: spill rollback may restore page membership without a user delete. `isInternalMutation()` exists only on the object returned by `createFormEditorOverlayAdapter`, not on the `PDFElements` instance or `PDFElementsPublicApi`:
+
+```ts
+const adapter = createFormEditorOverlayAdapter(overlay)
+const editor = createFormEditor({ overlay: adapter })
+
+function onDeleteObject({ object, docIndex }: { object: PDFElementObject; docIndex: number }) {
+  if (adapter.isInternalMutation?.()) return
+  const widget = editor.getWidgetByElementId(object.id as string, docIndex)
+  if (widget) editor.removeWidget(widget.id)
+}
+```
+
+The adapter restores page membership through `moveObjectToPage` (no delete event), so the guard only matters for the delete+add fallback used when `moveObjectToPage` is unavailable.
 
 ### Page / document changes
 
@@ -107,7 +120,7 @@ Programmatic geometry updates that would make `PDFElements` move the rectangle t
 | Method | Meaning |
 |--------|---------|
 | `getModel()` | Live session store. Mutating it bypasses overlay sync and editor invariants. |
-| `getSnapshot()` | Deep JSON clone for persistence / transport. |
+| `getSnapshot()` | Deep JSON clone for persistence / transport. Throws when the live model holds values JSON cannot represent losslessly (non-finite numbers, functions, dates, cycles). |
 | `loadModel(...)` | Replaces the session via `parseFormModel` (relationship checks included) and cancels placement. |
 
 `createField` does not accept pre-filled `widgetIds`. Attach visuals with `placeWidget`.
