@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 <template>
   <nav class="pdf-thumbnails" aria-label="Page thumbnails">
-    <template v-for="(doc, docIndex) in documents" :key="docIndex">
+    <template v-for="(doc, docIndex) in documents" :key="`${generation}-${docIndex}`">
       <button
         v-for="(page, pageIndex) in doc.pages"
         :key="`${docIndex}-${pageIndex}`"
@@ -57,8 +57,19 @@ export default defineComponent({
   data() {
     return {
       visibleKeys: {} as Record<string, boolean>,
+      generation: 0,
       observer: null as IntersectionObserver | null,
     }
+  },
+  watch: {
+    documents() {
+      // A new document set must not reuse thumbnails (or visibility flags) of the previous one.
+      this.visibleKeys = {}
+      this.generation++
+    },
+    currentPage() {
+      this.$nextTick(() => this.scrollActiveIntoView())
+    },
   },
   mounted() {
     if (typeof IntersectionObserver === 'undefined') return
@@ -88,6 +99,11 @@ export default defineComponent({
           this.observer.observe(el)
         }
       }
+    },
+    scrollActiveIntoView() {
+      const items = (this.$refs.items || []) as HTMLElement[]
+      const active = items.find(el => el.classList?.contains('pdf-thumbnail--active'))
+      active?.scrollIntoView?.({ block: 'nearest' })
     },
     isActive(docIndex: number, pageIndex: number) {
       return this.currentPage?.docIndex === docIndex && this.currentPage?.pageIndex === pageIndex

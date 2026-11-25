@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PDFThumbnails from '../../src/components/PDFThumbnails.vue'
 
@@ -38,5 +38,22 @@ describe('PDFThumbnails', () => {
     expect(items[1].attributes('aria-current')).toBe('page')
     await items[0].trigger('click')
     expect(wrapper.emitted('select')).toEqual([[{ docIndex: 0, pageIndex: 0 }]])
+  })
+
+  it('scrolls the active thumbnail into view when the current page changes', async () => {
+    const wrapper = mountThumbnails({ currentPage: { docIndex: 0, pageIndex: 0 } })
+    const target = wrapper.findAll('.pdf-thumbnail')[1].element as HTMLElement
+    target.scrollIntoView = vi.fn()
+    await wrapper.setProps({ currentPage: { docIndex: 0, pageIndex: 1 } })
+    await wrapper.vm.$nextTick()
+    expect(target.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+  })
+
+  it('resets thumbnails when the documents change', async () => {
+    const wrapper = mountThumbnails()
+    const before = wrapper.findAll('.pdf-thumbnail')[0].element
+    await wrapper.setProps({ documents: [{ ...documents[0], pages: [Promise.resolve()], pageWidths: [100] }] })
+    expect(wrapper.findAll('.pdf-thumbnail')).toHaveLength(1)
+    expect(wrapper.findAll('.pdf-thumbnail')[0].element).not.toBe(before)
   })
 })
