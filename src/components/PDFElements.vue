@@ -253,6 +253,10 @@ export default defineComponent({
       pageBoundsVersion: 0,
       lastScrollTop: 0,
       currentVisiblePage: null as { docIndex: number; pageIndex: number } | null,
+      currentPageRafId: 0,
+      navigationTarget: null as { docIndex: number; pageIndex: number } | null,
+      navigationScrollTop: 0,
+      _measuredPages: markRaw({}) as Record<string, boolean>,
       lastClientWidth: 0,
       nextObjectCounter: 0,
       isDraggingElement: false,
@@ -339,6 +343,10 @@ export default defineComponent({
       window.cancelAnimationFrame(this.viewportRafId)
       this.viewportRafId = 0
     }
+    if (this.currentPageRafId) {
+      window.cancelAnimationFrame(this.currentPageRafId)
+      this.currentPageRafId = 0
+    }
     if (this.hoverRafId) {
       window.cancelAnimationFrame(this.hoverRafId)
       this.hoverRafId = 0
@@ -410,6 +418,9 @@ export default defineComponent({
 
       this.pdfDocuments = docs
       this._pageMeasurementCache = markRaw({})
+      this._measuredPages = markRaw({})
+      this.currentVisiblePage = null
+      this.navigationTarget = null
       if (docs.length) {
         this.selectedDocIndex = 0
         this.selectedPageIndex = 0
@@ -814,20 +825,70 @@ export default defineComponent({
       return canvas?.closest?.('.page-wrapper') || canvas || null
     },
 
+    isPageMeasured(docIndex, pageIndex) {
+      return !!this._measuredPages[`${docIndex}-${pageIndex}`]
+    },
+
+    getPageViewportRect(docIndex, pageIndex, containerTop) {
+      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
+      if (!wrapper?.getBoundingClientRect) return null
+      const rect = wrapper.getBoundingClientRect()
+      return { docIndex, pageIndex, top: rect.top - containerTop, bottom: rect.bottom - containerTop }
+    },
+
     getCurrentPage() {
       const container = this.$el
       if (!container?.getBoundingClientRect) return null
-      const containerTop = container.getBoundingClientRect().top
-      const rects = []
+      const entries = []
       this.pdfDocuments.forEach((doc, docIndex) => {
         for (let pageIndex = 0; pageIndex < doc.pages.length; pageIndex++) {
-          const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
-          if (!wrapper?.getBoundingClientRect) continue
-          const rect = wrapper.getBoundingClientRect()
-          rects.push({ docIndex, pageIndex, top: rect.top - containerTop, bottom: rect.bottom - containerTop })
+          entries.push({ docIndex, pageIndex })
         }
       })
-      return findMostVisiblePage(rects, container.clientHeight || 0)
+      if (!entries.length) return null
+      const containerTop = container.getBoundingClientRect().top
+      const viewHeight = container.clientHeight || 0
+      const rectAt = (i) => this.getPageViewportRect(entries[i].docIndex, entries[i].pageIndex, containerTop)
+
+      // Pages are stacked in document order: start from the last known page and
+      // only read the pages around the viewport instead of every page.
+      const known = this.currentVisiblePage
+      let first = known
+        ? Math.max(0, entries.findIndex((e) => e.docIndex === known.docIndex && e.pageIndex === known.pageIndex))
+        : 0
+      while (first > 0) {
+        const previous = rectAt(first - 1)
+        if (!previous || previous.bottom <= 0) break
+        first--
+      }
+      while (first < entries.length - 1) {
+        const rect = rectAt(first)
+        if (rect && rect.bottom > 0) break
+        first++
+      }
+
+      const rects = []
+      for (let i = first; i < entries.length; i++) {
+        const rect = rectAt(i)
+        if (!rect) continue
+        if (rect.top >= viewHeight) break
+        // Pages that were not rendered yet still have placeholder dimensions.
+        if (this.isPageMeasured(rect.docIndex, rect.pageIndex)) rects.push(rect)
+      }
+
+      const target = this.navigationTarget
+      if (target) {
+        if (container.scrollTop === this.navigationScrollTop) {
+          // goToPage could not bring the page to the top (scroll clamped at the end): keep it current.
+          const targetRect = rects.find((r) => r.docIndex === target.docIndex && r.pageIndex === target.pageIndex)
+          if (targetRect && Math.min(targetRect.bottom, viewHeight) - Math.max(targetRect.top, 0) > 0) {
+            return { docIndex: target.docIndex, pageIndex: target.pageIndex }
+          }
+        } else {
+          this.navigationTarget = null
+        }
+      }
+      return findMostVisiblePage(rects, viewHeight)
     },
 
     updateCurrentPage() {
@@ -839,14 +900,26 @@ export default defineComponent({
       this.$emit('pdf-elements:page-change', { ...page })
     },
 
+    scheduleCurrentPageUpdate() {
+      if (this.currentPageRafId) return
+      this.currentPageRafId = window.requestAnimationFrame(() => {
+        this.currentPageRafId = 0
+        this.updateCurrentPage()
+      })
+    },
+
     goToPage(pageIndex, docIndex = 0) {
       const doc = this.pdfDocuments[docIndex]
       if (!doc || !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
+      if (!this.isPageMeasured(docIndex, pageIndex)) return false
       const container = this.$el
       const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
       if (!container?.getBoundingClientRect || !wrapper?.getBoundingClientRect) return false
       const delta = wrapper.getBoundingClientRect().top - container.getBoundingClientRect().top
       container.scrollTop = Math.max(0, (container.scrollTop || 0) + delta)
+      this.navigationTarget = { docIndex, pageIndex }
+      this.navigationScrollTop = container.scrollTop
+      this.updateCurrentPage()
       return true
     },
 
@@ -1392,7 +1465,9 @@ export default defineComponent({
     onMeasure(e, docIndex, pageIndex) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       this._pageMeasurementCache[`${docIndex}-${pageIndex}`] = null
+      this._measuredPages[`${docIndex}-${pageIndex}`] = true
       this.cachePageBoundsForPage(docIndex, pageIndex)
+      this.scheduleCurrentPageUpdate()
       if (this.autoFitZoom) {
         this.scheduleAutoFitZoom()
       }
