@@ -918,3 +918,45 @@ describe('PDFElements business rules', () => {
     rafSpy.mockRestore()
   })
 })
+
+describe('PDFElements page navigation', () => {
+  const setup = (tops: number[]) => {
+    const { wrapper, ctx } = makeWrapper()
+    const doc = makeDoc()
+    ctx.pdfDocuments = [doc]
+    const root = ctx.$el as HTMLElement
+    root.getBoundingClientRect = () => ({ top: 0, bottom: 500 } as DOMRect)
+    Object.defineProperty(root, 'clientHeight', { value: 500, configurable: true })
+    root.scrollTop = 0
+    ctx.getPageWrapperElement = vi.fn((_d: number, p: number) => ({
+      getBoundingClientRect: () => ({ top: tops[p] - root.scrollTop, bottom: tops[p] + 400 - root.scrollTop }),
+    }))
+    return { wrapper, ctx, root }
+  }
+
+  it('scrolls to the requested page', () => {
+    const { ctx, root } = setup([0, 450])
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(root.scrollTop).toBe(450)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('rejects invalid pages', () => {
+    const { ctx } = setup([0, 450])
+    expect(ctx.goToPage(2)).toBe(false)
+    expect(ctx.goToPage(-1)).toBe(false)
+    expect(ctx.goToPage(0, 3)).toBe(false)
+  })
+
+  it('emits page-change only when the visible page changes', () => {
+    const { wrapper, ctx, root } = setup([0, 450])
+    ctx.updateCurrentPage()
+    ctx.updateCurrentPage()
+    root.scrollTop = 450
+    ctx.updateCurrentPage()
+    expect(wrapper.emitted('pdf-elements:page-change')).toEqual([
+      [{ docIndex: 0, pageIndex: 0 }],
+      [{ docIndex: 0, pageIndex: 1 }],
+    ])
+  })
+})

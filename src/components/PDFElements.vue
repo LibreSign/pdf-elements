@@ -145,14 +145,14 @@ import PDFPage from './PDFPage.vue'
 import DraggableElement from './DraggableElement.vue'
 import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader'
 import { clampPosition, getVisibleArea } from '../utils/geometry'
-import { getViewportWindow, isPageInViewport } from '../utils/pageBounds'
+import { getViewportWindow, isPageInViewport, findMostVisiblePage } from '../utils/pageBounds'
 import { objectIdExistsInDoc, findObjectPageIndex, updateObjectInDoc, removeObjectFromDoc } from '../utils/objectStore'
 import { getCachedMeasurement } from '../utils/measurements'
 import type { PDFDocumentEntry, PDFElementObject, PDFElementsAddingEndedPayload } from '../types'
 
 export default defineComponent({
   name: 'PDFElements',
-  emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click', 'pdf-elements:adding-ended'],
+  emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click', 'pdf-elements:adding-ended', 'pdf-elements:page-change'],
   components: {
     PDFPage,
     DraggableElement,
@@ -252,6 +252,7 @@ export default defineComponent({
       pendingDragClientPos: null as { x: number; y: number } | null,
       pageBoundsVersion: 0,
       lastScrollTop: 0,
+      currentVisiblePage: null as { docIndex: number; pageIndex: number } | null,
       lastClientWidth: 0,
       nextObjectCounter: 0,
       isDraggingElement: false,
@@ -414,6 +415,7 @@ export default defineComponent({
         this.selectedPageIndex = 0
         this.$emit('pdf-elements:end-init', { docsCount: docs.length })
         this.$nextTick(() => {
+          this.updateCurrentPage()
           if (this.autoFitZoom) {
             this.scheduleAutoFitZoom()
           }
@@ -802,8 +804,50 @@ export default defineComponent({
             this.scheduleAutoFitZoom()
           }
         }
+        this.updateCurrentPage()
         this.viewportRafId = 0
       })
+    },
+
+    getPageWrapperElement(docIndex, pageIndex) {
+      const canvas = this.getPageCanvasElement(docIndex, pageIndex)
+      return canvas?.closest?.('.page-wrapper') || canvas || null
+    },
+
+    getCurrentPage() {
+      const container = this.$el
+      if (!container?.getBoundingClientRect) return null
+      const containerTop = container.getBoundingClientRect().top
+      const rects = []
+      this.pdfDocuments.forEach((doc, docIndex) => {
+        for (let pageIndex = 0; pageIndex < doc.pages.length; pageIndex++) {
+          const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
+          if (!wrapper?.getBoundingClientRect) continue
+          const rect = wrapper.getBoundingClientRect()
+          rects.push({ docIndex, pageIndex, top: rect.top - containerTop, bottom: rect.bottom - containerTop })
+        }
+      })
+      return findMostVisiblePage(rects, container.clientHeight || 0)
+    },
+
+    updateCurrentPage() {
+      const page = this.getCurrentPage()
+      if (!page) return
+      const previous = this.currentVisiblePage
+      if (previous && previous.docIndex === page.docIndex && previous.pageIndex === page.pageIndex) return
+      this.currentVisiblePage = page
+      this.$emit('pdf-elements:page-change', { ...page })
+    },
+
+    goToPage(pageIndex, docIndex = 0) {
+      const doc = this.pdfDocuments[docIndex]
+      if (!doc || !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
+      const container = this.$el
+      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
+      if (!container?.getBoundingClientRect || !wrapper?.getBoundingClientRect) return false
+      const delta = wrapper.getBoundingClientRect().top - container.getBoundingClientRect().top
+      container.scrollTop = Math.max(0, (container.scrollTop || 0) + delta)
+      return true
     },
 
     handleMouseMove(event) {

@@ -42,6 +42,11 @@ export interface PDFDocumentEntry {
   allObjects: PDFElementObject[][]
 }
 
+export interface PDFElementsPageChangePayload {
+  docIndex: number
+  pageIndex: number
+}
+
 export interface PDFElementsPublicApi {
   startAddingElement: (templateObject: PDFElementObject) => void
   addObjectToPage: (object: PDFElementObject, pageIndex?: number, docIndex?: number) => boolean
@@ -50,6 +55,8 @@ export interface PDFElementsPublicApi {
   deleteObject: (docIndex: number, objectId: string) => void
   duplicateObject: (docIndex: number, objectId: string) => void
   cancelAdding: () => void
+  goToPage: (pageIndex: number, docIndex?: number) => boolean
+  getCurrentPage: () => PDFElementsPageChangePayload | null
 }
 
 /**

@@ -44,10 +44,13 @@ For the logical field / visual widget data model (plain serializable types, rela
 
 - `pdf-elements:end-init` - Emitted when PDF is loaded.
 - `pdf-elements:adding-ended` - Emitted when interactive placement ends. Payload: `{ reason: 'placed', object, docIndex, pageIndex }` on success or `{ reason: 'cancelled' }` when placement is cancelled.
+- `pdf-elements:page-change` - Emitted when the page occupying most of the viewport changes (on scroll and after load). Payload: `{ docIndex, pageIndex }` (zero-based).
 
 ## Exposed methods
 
 - `startAddingElement(templateObject)` - Starts interactive placement mode.
+- `goToPage(pageIndex, docIndex = 0)` - Scrolls the page to the top of the viewer. Zero-based indices. Returns `false` when the page does not exist or is not rendered.
+- `getCurrentPage()` - Returns `{ docIndex, pageIndex }` for the page occupying most of the viewport, or `null` when no page is rendered.
 - `cancelAdding()` - Cancels the current placement session and emits `pdf-elements:adding-ended` with `{ reason: 'cancelled' }` when a session was active.
 
 ## Slots
