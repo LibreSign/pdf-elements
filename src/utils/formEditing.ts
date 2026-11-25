@@ -662,6 +662,8 @@ export function createFormEditor(
     requireField(model, fieldId)
     const widgets = getWidgetsForField(model, fieldId)
     for (const widget of [...widgets]) {
+      // A host delete-object handler may re-enter and already remove this widget.
+      if (!getFormWidgetById(model, widget.id)) continue
       removeWidget(widget.id, placeOptions)
     }
     model.fields = model.fields.filter((field) => field.id !== fieldId)
@@ -791,7 +793,8 @@ export function createFormEditor(
 
     if (syncOverlay) {
       const pageChanged = patch.pageIndex !== undefined && patch.pageIndex !== widget.pageIndex
-      const docChanged = patch.docIndex !== undefined && patch.docIndex !== widget.docIndex
+      const docChanged = patch.docIndex !== undefined
+        && patch.docIndex !== resolveDocIndex(widget)
       const elementChanged = patch.elementId !== undefined && patch.elementId !== widget.elementId
       if (pageChanged || docChanged) {
         throw new Error(

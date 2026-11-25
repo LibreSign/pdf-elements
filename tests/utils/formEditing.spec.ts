@@ -717,4 +717,44 @@ describe('createFormEditor', () => {
     expect(editor.getWidget(first.id)?.docIndex).toBe(0)
     expect(editor.getWidget(second.id)?.docIndex).toBe(1)
   })
+
+  it('treats an omitted docIndex as document 0 when syncing the overlay', () => {
+    const { adapter } = createOverlayAdapter()
+    const editor = createFormEditor({ overlay: adapter })
+    const field = editor.createField({ type: 'text', name: 'doc0' })
+    const widget = editor.placeWidget({
+      fieldId: field.id,
+      pageIndex: 0,
+      x: 1,
+      y: 1,
+      width: 10,
+      height: 10,
+    })
+
+    expect(() => editor.updateWidget(widget.id, { docIndex: 0, x: 15 })).not.toThrow()
+    expect(editor.getWidget(widget.id)?.x).toBe(15)
+    expect(() => editor.updateWidget(widget.id, { docIndex: 1 })).toThrow(/pageIndex\/docIndex/)
+  })
+
+  it('removes a multi-widget field when a host delete handler re-enters removeField', () => {
+    const { adapter, objects } = createOverlayAdapter()
+    const editor = createFormEditor({ overlay: adapter })
+    const field = editor.createField({ type: 'radio', name: 'reentrant' })
+    for (const x of [1, 30]) {
+      editor.placeWidget({ fieldId: field.id, pageIndex: 0, x, y: 1, width: 10, height: 10 })
+    }
+    const baseDelete = adapter.deleteObject.getMockImplementation()!
+    adapter.deleteObject.mockImplementation((docIndex: number, objectId: string) => {
+      const existed = objects.some((entry) => entry.id === objectId)
+      baseDelete(docIndex, objectId)
+      // Like PDFElements, emit delete-object only when a rectangle was removed;
+      // the host wires that event to removeField.
+      if (existed && editor.getField(field.id)) editor.removeField(field.id)
+    })
+
+    expect(() => editor.removeField(field.id)).not.toThrow()
+    expect(editor.getField(field.id)).toBeUndefined()
+    expect(editor.getModel().widgets).toHaveLength(0)
+    expect(objects).toHaveLength(0)
+  })
 })
