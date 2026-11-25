@@ -4,7 +4,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
 <template>
-  <div :style="{ width, height }" class="pdf-elements-root">
+  <div :style="{ width, height }" class="pdf-elements-root" :class="{ 'pdf-elements-root--thumbnails': showThumbnails }">
+    <aside v-if="showThumbnails && pdfDocuments.length" class="thumbnails-sidebar">
+      <PDFThumbnails
+        :documents="pdfDocuments"
+        :current-page="currentVisiblePage"
+        :width="thumbnailWidth"
+        @select="goToPage($event.pageIndex, $event.docIndex)"
+      />
+    </aside>
     <div
       v-if="pdfDocuments.length"
       class="pages-container"
@@ -142,6 +150,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 <script lang="ts">
 import { defineComponent, type PropType, markRaw } from 'vue'
 import PDFPage from './PDFPage.vue'
+import PDFThumbnails from './PDFThumbnails.vue'
 import DraggableElement from './DraggableElement.vue'
 import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader'
 import { clampPosition, getVisibleArea } from '../utils/geometry'
@@ -155,6 +164,7 @@ export default defineComponent({
   emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click', 'pdf-elements:adding-ended', 'pdf-elements:page-change'],
   components: {
     PDFPage,
+    PDFThumbnails,
     DraggableElement,
   },
   props: {
@@ -183,6 +193,14 @@ export default defineComponent({
     showPageFooter: {
       type: Boolean,
       default: true,
+    },
+    showThumbnails: {
+      type: Boolean,
+      default: false,
+    },
+    thumbnailWidth: {
+      type: Number,
+      default: 120,
     },
     hideSelectionUI: {
       type: Boolean,
@@ -1481,6 +1499,25 @@ export default defineComponent({
   box-sizing: border-box;
   touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
+}
+.pdf-elements-root--thumbnails {
+  display: flex;
+  align-items: flex-start;
+}
+.thumbnails-sidebar {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  max-height: 100%;
+  overflow-y: auto;
+  background: #edf2f7;
+}
+.pdf-elements-root--thumbnails .pages-container {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
 }
 .pages-container {
   width: 100%;

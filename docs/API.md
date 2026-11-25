@@ -24,6 +24,8 @@ For the logical field / visual widget data model (plain serializable types, rela
 | `ignoreClickOutsideSelectors` | Array | `[]` | CSS selectors that keep the selection active when clicking outside the element |
 | `pageCountFormat` | String | `'{currentPage} of {totalPages}'` | Format string for page counter |
 | `autoFitZoom` | Boolean | `false` | Automatically adjust zoom to fit viewport on window resize |
+| `showThumbnails` | Boolean | `false` | Show a sticky thumbnail sidebar on the left; clicking a thumbnail calls `goToPage` and the current page is highlighted |
+| `thumbnailWidth` | Number | `120` | Thumbnail width in pixels |
 | `pdfjsOptions` | Object | `{}` | Options passed to PDF.js `getDocument` |
 
 ## PDF.js options
