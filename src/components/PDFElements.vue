@@ -926,7 +926,12 @@ export default defineComponent({
       if (!container?.getBoundingClientRect || !wrapper?.getBoundingClientRect) return false
       const delta = wrapper.getBoundingClientRect().top - container.getBoundingClientRect().top
       const desiredScrollTop = Math.max(0, (container.scrollTop || 0) + delta)
-      container.scrollTop = desiredScrollTop
+      // Instant, so `scroll-behavior: smooth` on the host cannot defer the final (clamped) position.
+      if (typeof container.scrollTo === 'function') {
+        container.scrollTo({ top: desiredScrollTop, behavior: 'instant' })
+      } else {
+        container.scrollTop = desiredScrollTop
+      }
       // Only a clamped scroll (page cannot reach the top) needs the target override.
       const clamped = container.scrollTop < desiredScrollTop - 0.5
       this.navigationTarget = clamped ? { docIndex, pageIndex } : null

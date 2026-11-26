@@ -990,6 +990,14 @@ describe('PDFElements page navigation', () => {
     expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 0 })
   })
 
+  it('scrolls instantly so smooth scroll-behavior cannot defer the clamp check', () => {
+    const { ctx, root } = setup([[0, 450]], { maxScroll: 20 })
+    ;(root as any).scrollTo = vi.fn(({ top }: { top: number }) => { root.scrollTop = top })
+    expect(ctx.goToPage(1)).toBe(true)
+    expect((root as any).scrollTo).toHaveBeenCalledWith({ top: 450, behavior: 'instant' })
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
   it('does not pin an unclamped target when zoom changes the geometry', () => {
     const { ctx } = setup([[0, 450]])
     expect(ctx.goToPage(0)).toBe(true)
