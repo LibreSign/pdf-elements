@@ -990,6 +990,45 @@ describe('PDFElements page navigation', () => {
     expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 0 })
   })
 
+  it('does not pin an unclamped target when zoom changes the geometry', () => {
+    const { ctx } = setup([[0, 450]])
+    expect(ctx.goToPage(0)).toBe(true)
+    expect(ctx.navigationTarget).toBeNull()
+    ctx.getPageWrapperElement = vi.fn((_d: number, p: number) => ({
+      getBoundingClientRect: () => (p === 0 ? { top: 0, bottom: 200 } : { top: 200, bottom: 800 }),
+    }))
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('recomputes the current page when the container is resized', () => {
+    const observers: Array<() => void> = []
+    const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: () => void) { observers.push(cb) }
+      observe() {}
+      disconnect() { disconnect() }
+    })
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      cb(0)
+      return 1
+    })
+    const { wrapper, ctx } = setup([[0, 450]])
+    expect(observers).toHaveLength(1)
+    ctx.updateCurrentPage()
+    ctx.getPageWrapperElement = vi.fn((_d: number, p: number) => ({
+      getBoundingClientRect: () => (p === 0 ? { top: 0, bottom: 100 } : { top: 100, bottom: 700 }),
+    }))
+    observers[0]()
+    expect(wrapper.emitted('pdf-elements:page-change')).toEqual([
+      [{ docIndex: 0, pageIndex: 0 }],
+      [{ docIndex: 0, pageIndex: 1 }],
+    ])
+    wrapper.unmount()
+    expect(disconnect).toHaveBeenCalled()
+    rafSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
   it('emits page-change only when the visible page changes', () => {
     const { wrapper, ctx, root } = setup([[0, 450]])
     ctx.updateCurrentPage()

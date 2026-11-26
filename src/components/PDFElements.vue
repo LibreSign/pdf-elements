@@ -254,6 +254,7 @@ export default defineComponent({
       lastScrollTop: 0,
       currentVisiblePage: null as { docIndex: number; pageIndex: number } | null,
       currentPageRafId: 0,
+      resizeObserver: null as ResizeObserver | null,
       navigationTarget: null as { docIndex: number; pageIndex: number } | null,
       navigationScrollTop: 0,
       _measuredPages: markRaw({}) as Record<string, boolean>,
@@ -308,6 +309,10 @@ export default defineComponent({
     window.addEventListener('scroll', this.onViewportScroll, { passive: true })
     window.addEventListener('resize', this.onViewportScroll)
     this.$el?.addEventListener('scroll', this.onViewportScroll, { passive: true })
+    if (typeof ResizeObserver !== 'undefined' && this.$el) {
+      this.resizeObserver = markRaw(new ResizeObserver(() => this.scheduleCurrentPageUpdate()))
+      this.resizeObserver.observe(this.$el)
+    }
     this.$el?.addEventListener('wheel', this.boundHandleWheel, { passive: false })
     this.$el?.addEventListener('touchstart', this.boundHandleTouchStart, { passive: false })
     this.$el?.addEventListener('touchmove', this.boundHandleTouchMove, { passive: false })
@@ -342,6 +347,10 @@ export default defineComponent({
     if (this.viewportRafId) {
       window.cancelAnimationFrame(this.viewportRafId)
       this.viewportRafId = 0
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect()
+      this.resizeObserver = null
     }
     if (this.currentPageRafId) {
       window.cancelAnimationFrame(this.currentPageRafId)
@@ -916,8 +925,11 @@ export default defineComponent({
       const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
       if (!container?.getBoundingClientRect || !wrapper?.getBoundingClientRect) return false
       const delta = wrapper.getBoundingClientRect().top - container.getBoundingClientRect().top
-      container.scrollTop = Math.max(0, (container.scrollTop || 0) + delta)
-      this.navigationTarget = { docIndex, pageIndex }
+      const desiredScrollTop = Math.max(0, (container.scrollTop || 0) + delta)
+      container.scrollTop = desiredScrollTop
+      // Only a clamped scroll (page cannot reach the top) needs the target override.
+      const clamped = container.scrollTop < desiredScrollTop - 0.5
+      this.navigationTarget = clamped ? { docIndex, pageIndex } : null
       this.navigationScrollTop = container.scrollTop
       this.updateCurrentPage()
       return true
