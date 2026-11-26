@@ -145,7 +145,7 @@ If a host previously encoded form semantics only on overlay objects (for example
 
 1. Create `PDFFormField` entries for shared properties (`type`, `name`, value, required, options).
 2. Create one `PDFFormWidget` per visual rectangle, including `pageIndex` and geometry.
-3. Optionally set `elementId` to the existing overlay object id so the editor can keep using `PDFElementObject` until form editing lands (#85).
+3. Optionally set `elementId` to the existing overlay object id so the editor can keep using `PDFElementObject` while adopting form editing ([Form field editing](./FORM_EDITING.md)).
 4. Stop duplicating field-level properties onto each overlay object once the form model is the source of truth.
 
 ## Out of scope
@@ -154,9 +154,9 @@ This package model does **not** implement:
 
 - PDF AcroForm parsing or writing
 - PDF mutation or cryptographic signing
-- Full per-type editor behavior (tracked separately)
+- Full per-type editor behavior (text/checkbox/radio/dropdown UX)
 
-Those belong outside this issue and, for editor behavior, in follow-up work that builds on this model.
+Generic create/place/select/update editing that reuses this model lives in [Form field editing](./FORM_EDITING.md). Per-type controls remain follow-up work.
 
 Parsing validates required properties, finite geometry, non-negative integer page/document
 indices, non-negative sizes and plain JSON data (including metadata). Runtime objects,
