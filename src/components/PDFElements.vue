@@ -20,6 +20,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 :page="page"
                 :scale="scale"
                 @onMeasure="onMeasure($event, docIndex, pIndex)"
+                @onGeometry="onGeometry(docIndex, pIndex)"
               />
                 <div
                 class="overlay"
@@ -255,9 +256,11 @@ export default defineComponent({
       currentVisiblePage: null as { docIndex: number; pageIndex: number } | null,
       currentPageRafId: 0,
       resizeObserver: null as ResizeObserver | null,
-      navigationTarget: null as { docIndex: number; pageIndex: number } | null,
-      navigationScrollTop: 0,
-      _measuredPages: markRaw({}) as Record<string, boolean>,
+      pendingNavigation: null as { docIndex: number; pageIndex: number } | null,
+      _geometryReady: markRaw({}) as Record<string, boolean>,
+      _pageEntries: markRaw([]) as Array<{ docIndex: number; pageIndex: number }>,
+      _pageEntryIndex: markRaw({}) as Record<string, number>,
+      _pageEntriesSource: null as unknown,
       lastClientWidth: 0,
       nextObjectCounter: 0,
       isDraggingElement: false,
@@ -427,9 +430,9 @@ export default defineComponent({
 
       this.pdfDocuments = docs
       this._pageMeasurementCache = markRaw({})
-      this._measuredPages = markRaw({})
+      this._geometryReady = markRaw({})
       this.currentVisiblePage = null
-      this.navigationTarget = null
+      this.pendingNavigation = null
       if (docs.length) {
         this.selectedDocIndex = 0
         this.selectedPageIndex = 0
@@ -834,37 +837,89 @@ export default defineComponent({
       return canvas?.closest?.('.page-wrapper') || canvas || null
     },
 
-    isPageMeasured(docIndex, pageIndex) {
-      return !!this._measuredPages[`${docIndex}-${pageIndex}`]
+    /** Ordered list of every page, rebuilt only when the document set changes. */
+    getPageEntries() {
+      if (this._pageEntriesSource !== this.pdfDocuments) {
+        const entries = []
+        const index = {}
+        this.pdfDocuments.forEach((doc, docIndex) => {
+          for (let pageIndex = 0; pageIndex < doc.pages.length; pageIndex++) {
+            index[`${docIndex}-${pageIndex}`] = entries.length
+            entries.push({ docIndex, pageIndex })
+          }
+        })
+        this._pageEntries = markRaw(entries)
+        this._pageEntryIndex = markRaw(index)
+        this._pageEntriesSource = this.pdfDocuments
+      }
+      return this._pageEntries
     },
 
-    getPageViewportRect(docIndex, pageIndex, containerTop) {
+    isPageGeometryReady(docIndex, pageIndex) {
+      return !!this._geometryReady[`${docIndex}-${pageIndex}`]
+    },
+
+    /** A page's position depends on every page before it, so all of them need their geometry. */
+    isNavigationReady(docIndex, pageIndex) {
+      const entries = this.getPageEntries()
+      const last = this._pageEntryIndex[`${docIndex}-${pageIndex}`]
+      for (let i = 0; i <= last; i++) {
+        if (!this.isPageGeometryReady(entries[i].docIndex, entries[i].pageIndex)) return false
+      }
+      return true
+    },
+
+    /**
+     * The element that actually scrolls the pages: the viewer itself when it has a
+     * bounded height, otherwise the nearest scrollable ancestor, or the window (null).
+     */
+    getScrollContainer() {
+      const root = this.$el
+      if (!root) return null
+      let el = root
+      while (el && el !== document.body && el !== document.documentElement) {
+        const scrollable = el === root || /(auto|scroll)/.test(window.getComputedStyle(el).overflowY)
+        if (scrollable && el.scrollHeight > el.clientHeight + 1) return el
+        el = el.parentElement
+      }
+      return null
+    },
+
+    getScrollViewport(container) {
+      if (container) {
+        const rect = container.getBoundingClientRect()
+        return { top: rect.top, left: rect.left, width: container.clientWidth || 0, height: container.clientHeight || 0, scrollTop: container.scrollTop || 0 }
+      }
+      return { top: 0, left: 0, width: window.innerWidth || 0, height: window.innerHeight || 0, scrollTop: window.scrollY || 0 }
+    },
+
+    getPageViewportRect(docIndex, pageIndex, containerRect) {
       const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
       if (!wrapper?.getBoundingClientRect) return null
       const rect = wrapper.getBoundingClientRect()
-      return { docIndex, pageIndex, top: rect.top - containerTop, bottom: rect.bottom - containerTop }
+      return {
+        docIndex,
+        pageIndex,
+        top: rect.top - containerRect.top,
+        bottom: rect.bottom - containerRect.top,
+        left: (rect.left ?? 0) - (containerRect.left ?? 0),
+        right: (rect.right ?? rect.left ?? 0) - (containerRect.left ?? 0),
+      }
     },
 
     getCurrentPage() {
-      const container = this.$el
-      if (!container?.getBoundingClientRect) return null
-      const entries = []
-      this.pdfDocuments.forEach((doc, docIndex) => {
-        for (let pageIndex = 0; pageIndex < doc.pages.length; pageIndex++) {
-          entries.push({ docIndex, pageIndex })
-        }
-      })
+      if (!this.$el?.getBoundingClientRect) return null
+      const entries = this.getPageEntries()
       if (!entries.length) return null
-      const containerTop = container.getBoundingClientRect().top
-      const viewHeight = container.clientHeight || 0
-      const rectAt = (i) => this.getPageViewportRect(entries[i].docIndex, entries[i].pageIndex, containerTop)
+      const containerRect = this.getScrollViewport(this.getScrollContainer())
+      const viewHeight = containerRect.height
+      const viewWidth = containerRect.width
+      const rectAt = (i) => this.getPageViewportRect(entries[i].docIndex, entries[i].pageIndex, containerRect)
 
       // Pages are stacked in document order: start from the last known page and
       // only read the pages around the viewport instead of every page.
       const known = this.currentVisiblePage
-      let first = known
-        ? Math.max(0, entries.findIndex((e) => e.docIndex === known.docIndex && e.pageIndex === known.pageIndex))
-        : 0
+      let first = known ? (this._pageEntryIndex[`${known.docIndex}-${known.pageIndex}`] ?? 0) : 0
       while (first > 0) {
         const previous = rectAt(first - 1)
         if (!previous || previous.bottom <= 0) break
@@ -881,32 +936,21 @@ export default defineComponent({
         const rect = rectAt(i)
         if (!rect) continue
         if (rect.top >= viewHeight) break
-        // Pages that were not rendered yet still have placeholder dimensions.
-        if (this.isPageMeasured(rect.docIndex, rect.pageIndex)) rects.push(rect)
+        if (this.isPageGeometryReady(rect.docIndex, rect.pageIndex)) rects.push(rect)
       }
+      return findMostVisiblePage(rects, viewHeight, { viewWidth, current: known })
+    },
 
-      const target = this.navigationTarget
-      if (target) {
-        if (container.scrollTop === this.navigationScrollTop) {
-          // goToPage could not bring the page to the top (scroll clamped at the end): keep it current.
-          const targetRect = rects.find((r) => r.docIndex === target.docIndex && r.pageIndex === target.pageIndex)
-          if (targetRect && Math.min(targetRect.bottom, viewHeight) - Math.max(targetRect.top, 0) > 0) {
-            return { docIndex: target.docIndex, pageIndex: target.pageIndex }
-          }
-        } else {
-          this.navigationTarget = null
-        }
-      }
-      return findMostVisiblePage(rects, viewHeight)
+    setCurrentPage(page) {
+      const previous = this.currentVisiblePage
+      if (previous && previous.docIndex === page.docIndex && previous.pageIndex === page.pageIndex) return
+      this.currentVisiblePage = { docIndex: page.docIndex, pageIndex: page.pageIndex }
+      this.$emit('pdf-elements:page-change', { docIndex: page.docIndex, pageIndex: page.pageIndex })
     },
 
     updateCurrentPage() {
       const page = this.getCurrentPage()
-      if (!page) return
-      const previous = this.currentVisiblePage
-      if (previous && previous.docIndex === page.docIndex && previous.pageIndex === page.pageIndex) return
-      this.currentVisiblePage = page
-      this.$emit('pdf-elements:page-change', { ...page })
+      if (page) this.setCurrentPage(page)
     },
 
     scheduleCurrentPageUpdate() {
@@ -917,27 +961,52 @@ export default defineComponent({
       })
     },
 
+    onGeometry(docIndex, pageIndex) {
+      if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
+      this._geometryReady[`${docIndex}-${pageIndex}`] = true
+      this.flushPendingNavigation()
+      this.scheduleCurrentPageUpdate()
+    },
+
+    flushPendingNavigation() {
+      const target = this.pendingNavigation
+      if (!target || !this.isNavigationReady(target.docIndex, target.pageIndex)) return
+      this.pendingNavigation = null
+      this.scrollToPage(target.docIndex, target.pageIndex)
+    },
+
+    scrollToPage(docIndex, pageIndex) {
+      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
+      if (!this.$el?.getBoundingClientRect || !wrapper?.getBoundingClientRect) return false
+      const container = this.getScrollContainer()
+      const viewport = this.getScrollViewport(container)
+      const top = Math.max(0, viewport.scrollTop + wrapper.getBoundingClientRect().top - viewport.top)
+      // Instant, so `scroll-behavior: smooth` on the host cannot defer the scroll.
+      const target = container || window
+      if (typeof target.scrollTo === 'function') {
+        target.scrollTo({ top, behavior: 'instant' })
+      } else if (container) {
+        container.scrollTop = top
+      }
+      // Explicit navigation makes the page current; it stays current while fully visible.
+      this.setCurrentPage({ docIndex, pageIndex })
+      return true
+    },
+
+    /**
+     * Scrolls the page to the top of the viewer. Valid requests are never dropped:
+     * when the layout is not known yet, the latest request runs as soon as it is.
+     */
     goToPage(pageIndex, docIndex = 0) {
       const doc = this.pdfDocuments[docIndex]
       if (!doc || !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
-      if (!this.isPageMeasured(docIndex, pageIndex)) return false
-      const container = this.$el
-      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
-      if (!container?.getBoundingClientRect || !wrapper?.getBoundingClientRect) return false
-      const delta = wrapper.getBoundingClientRect().top - container.getBoundingClientRect().top
-      const desiredScrollTop = Math.max(0, (container.scrollTop || 0) + delta)
-      // Instant, so `scroll-behavior: smooth` on the host cannot defer the final (clamped) position.
-      if (typeof container.scrollTo === 'function') {
-        container.scrollTo({ top: desiredScrollTop, behavior: 'instant' })
-      } else {
-        container.scrollTop = desiredScrollTop
+      this.getPageEntries()
+      if (!this.isNavigationReady(docIndex, pageIndex)) {
+        this.pendingNavigation = { docIndex, pageIndex }
+        return true
       }
-      // Only a clamped scroll (page cannot reach the top) needs the target override.
-      const clamped = container.scrollTop < desiredScrollTop - 0.5
-      this.navigationTarget = clamped ? { docIndex, pageIndex } : null
-      this.navigationScrollTop = container.scrollTop
-      this.updateCurrentPage()
-      return true
+      this.pendingNavigation = null
+      return this.scrollToPage(docIndex, pageIndex)
     },
 
     handleMouseMove(event) {
@@ -1482,7 +1551,7 @@ export default defineComponent({
     onMeasure(e, docIndex, pageIndex) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       this._pageMeasurementCache[`${docIndex}-${pageIndex}`] = null
-      this._measuredPages[`${docIndex}-${pageIndex}`] = true
+      this._geometryReady[`${docIndex}-${pageIndex}`] = true
       this.cachePageBoundsForPage(docIndex, pageIndex)
       this.scheduleCurrentPageUpdate()
       if (this.autoFitZoom) {

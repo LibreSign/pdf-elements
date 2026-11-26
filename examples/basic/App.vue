@@ -20,6 +20,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
     <DocumentsList :documents="fileNames" @remove="removeDocument" />
 
+    <p v-if="currentPage" class="page-status" role="status" data-testid="current-page">
+      Document {{ currentPage.docIndex + 1 }} · Page {{ currentPage.pageIndex + 1 }}
+    </p>
+
     <section class="viewer">
       <PDFElements
         ref="pdf"
@@ -28,6 +32,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         :init-file-names="fileNames"
         :initial-scale="1.1"
         @pdf-elements:end-init="onReady"
+        @pdf-elements:page-change="currentPage = $event"
       >
         <template #element-signature="{ object }">
           <SignatureBox
@@ -91,6 +96,7 @@ export default defineComponent({
       pdfReady: false,
       showElementsViewer: false,
       isAddingElement: false,
+      currentPage: null as { docIndex: number; pageIndex: number } | null,
     }
   },
   computed: {
@@ -149,6 +155,7 @@ export default defineComponent({
     },
 
     forceRenderDocuments() {
+      this.currentPage = null
       this.componentKey += 1
     },
 
@@ -212,6 +219,19 @@ export default defineComponent({
   font-family: "Inter", "Segoe UI", -apple-system, sans-serif;
   display: flex;
   flex-direction: column;
+}
+
+/* Announces the current page to assistive tech without changing the layout. */
+.page-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .viewer {

@@ -37,6 +37,34 @@ describe('PDFPage business rules', () => {
     expect(wrapper.emitted('onMeasure')?.[0][0]).toEqual({ scale: 2 })
   })
 
+  it('reserves the page size and reports geometry before the render task finishes', async () => {
+    ;(HTMLCanvasElement.prototype as any).getContext = vi.fn(() => ({}))
+    const page = makePage()
+    page.render = vi.fn(() => ({ promise: new Promise<void>(() => {}), cancel: vi.fn() }))
+    const wrapper = mount(PDFPage, { props: { page: Promise.resolve(page), scale: 2 } })
+
+    await flushPromises()
+
+    const canvas = wrapper.find('canvas').element as HTMLCanvasElement
+    expect(canvas.width).toBe(200)
+    expect(canvas.height).toBe(400)
+    expect(wrapper.emitted('onGeometry')?.[0][0]).toEqual({ scale: 2 })
+    expect(wrapper.emitted('onMeasure')).toBeUndefined()
+  })
+
+  it('reserves the new size when the scale changes', async () => {
+    ;(HTMLCanvasElement.prototype as any).getContext = vi.fn(() => ({}))
+    const wrapper = mount(PDFPage, { props: { page: Promise.resolve(makePage()), scale: 1 } })
+    await flushPromises()
+    await wrapper.setProps({ scale: 3 })
+    await flushPromises()
+
+    const canvas = wrapper.find('canvas').element as HTMLCanvasElement
+    expect(canvas.width).toBe(300)
+    const geometry = wrapper.emitted('onGeometry') || []
+    expect(geometry[geometry.length - 1][0]).toEqual({ scale: 3 })
+  })
+
   it('reports current canvas measurement', async () => {
     ;(HTMLCanvasElement.prototype as any).getContext = vi.fn(() => ({}))
     const page = makePage()

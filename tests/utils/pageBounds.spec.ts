@@ -32,3 +32,47 @@ describe('findMostVisiblePage', () => {
     expect(findMostVisiblePage([{ docIndex: 0, pageIndex: 0, top: 600, bottom: 900 }], 500)).toBeNull()
   })
 })
+
+describe('findMostVisiblePage selection rules', () => {
+  it('uses the visible percentage, not the absolute visible height', () => {
+    const rects = [
+      { docIndex: 0, pageIndex: 0, top: 0, bottom: 200 },
+      { docIndex: 0, pageIndex: 1, top: 220, bottom: 1020 },
+    ]
+    // 200px page is 100% visible, the tall page only 280/800
+    expect(findMostVisiblePage(rects, 500)).toEqual({ docIndex: 0, pageIndex: 0 })
+  })
+
+  it('keeps the current page while it is fully visible, even on a tie', () => {
+    const rects = [
+      { docIndex: 0, pageIndex: 0, top: 0, bottom: 400 },
+      { docIndex: 0, pageIndex: 1, top: 420, bottom: 820 },
+    ]
+    expect(findMostVisiblePage(rects, 900)).toEqual({ docIndex: 0, pageIndex: 0 })
+    expect(findMostVisiblePage(rects, 900, { current: { docIndex: 0, pageIndex: 1 } })).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('stops keeping the current page once it is partially visible', () => {
+    const rects = [
+      { docIndex: 0, pageIndex: 0, top: -300, bottom: 100 },
+      { docIndex: 0, pageIndex: 1, top: 120, bottom: 520 },
+    ]
+    expect(findMostVisiblePage(rects, 500, { current: { docIndex: 0, pageIndex: 0 } })).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('accounts for horizontal clipping', () => {
+    const rects = [
+      { docIndex: 0, pageIndex: 0, top: 0, bottom: 300, left: -350, right: 50 },
+      { docIndex: 0, pageIndex: 1, top: 320, bottom: 620, left: 0, right: 400 },
+    ]
+    expect(findMostVisiblePage(rects, 700, { viewWidth: 800 })).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('resolves ties to the first page in document order', () => {
+    const rects = [
+      { docIndex: 0, pageIndex: 0, top: -250, bottom: 250 },
+      { docIndex: 0, pageIndex: 1, top: 250, bottom: 750 },
+    ]
+    expect(findMostVisiblePage(rects, 500)).toEqual({ docIndex: 0, pageIndex: 0 })
+  })
+})

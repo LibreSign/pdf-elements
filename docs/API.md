@@ -44,13 +44,13 @@ For the logical field / visual widget data model (plain serializable types, rela
 
 - `pdf-elements:end-init` - Emitted when PDF is loaded.
 - `pdf-elements:adding-ended` - Emitted when interactive placement ends. Payload: `{ reason: 'placed', object, docIndex, pageIndex }` on success or `{ reason: 'cancelled' }` when placement is cancelled.
-- `pdf-elements:page-change` - Emitted when the page occupying most of the viewport changes (on scroll, on zoom and once pages have rendered after load). Payload: `{ docIndex, pageIndex }` (zero-based).
+- `pdf-elements:page-change` - Emitted when the current page changes: on scroll, zoom, container resize, once page layout is known after load, and on `goToPage`. The current page is the one with the highest visible percentage (horizontal clipping included); it is kept while it stays fully visible. Payload: `{ docIndex, pageIndex }` (zero-based).
 
 ## Exposed methods
 
 - `startAddingElement(templateObject)` - Starts interactive placement mode.
-- `goToPage(pageIndex, docIndex = 0)` - Scrolls the page to the top of the viewer. Zero-based indices. Returns `false` when the page does not exist or has not been rendered yet. When the scroll range cannot bring the page to the top (for example a short last page), it is still reported as the current page until the user scrolls.
-- `getCurrentPage()` - Returns `{ docIndex, pageIndex }` for the page occupying most of the viewport, or `null` when no page has been rendered yet.
+- `goToPage(pageIndex, docIndex = 0)` - Scrolls the page to the top of the viewer (the viewer itself, its nearest scrollable ancestor, or the window) and makes it the current page. Zero-based indices. Returns `false` only for pages that do not exist. When the page layout is not known yet (right after load) the request is kept and runs as soon as it is, the latest request winning; page dimensions come from the PDF.js viewport, so it does not wait for canvas rendering.
+- `getCurrentPage()` - Returns `{ docIndex, pageIndex }` for the current page (see `pdf-elements:page-change`), or `null` while no page layout is known yet.
 - `cancelAdding()` - Cancels the current placement session and emits `pdf-elements:adding-ended` with `{ reason: 'cancelled' }` when a session was active.
 
 ## Slots
