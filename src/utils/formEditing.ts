@@ -23,6 +23,7 @@ import {
   getFormFieldById,
   getFormWidgetById,
   getWidgetsForField,
+  isValidFormWidgetPlacement,
   parseFormModel,
   serializeFormModel,
   type CreateFormFieldInput,
@@ -238,6 +239,14 @@ function requireWidget(model: PDFFormModel, widgetId: PDFFormWidgetId): PDFFormW
     throw new Error(`Form widget "${widgetId}" was not found`)
   }
   return widget
+}
+
+function assertWidgetPlacement(
+  widget: Pick<PDFFormWidget, 'pageIndex' | 'docIndex' | 'x' | 'y' | 'width' | 'height'>
+): void {
+  if (!isValidFormWidgetPlacement(widget)) {
+    throw new Error('Invalid form widget placement')
+  }
 }
 
 function defaultGeometry(width?: number, height?: number) {
@@ -680,6 +689,7 @@ export function createFormEditor(
     placeOptions: PlaceFormWidgetOptions = {}
   ): PDFFormWidget => {
     const field = requireField(model, input.fieldId)
+    assertWidgetPlacement(input)
     assertElementIdAvailable(
       input.elementId,
       input.id ?? '',
@@ -707,6 +717,7 @@ export function createFormEditor(
   const beginPlaceWidget = (input: BeginPlaceWidgetInput) => {
     const field = requireField(model, input.fieldId)
     const geometry = defaultGeometry(input.width, input.height)
+    assertWidgetPlacement({ pageIndex: 0, x: 0, y: 0, ...geometry })
     clearPendingPlacement(true)
     pendingPlacement = {
       fieldId: field.id,
@@ -821,33 +832,29 @@ export function createFormEditor(
       assertElementIdAvailable(widget.elementId, widget.id, patch.docIndex)
     }
 
-    const previousGeometry = {
-      x: widget.x,
-      y: widget.y,
-      width: widget.width,
-      height: widget.height,
+    const nextGeometry = {
+      x: patch.x !== undefined ? patch.x : widget.x,
+      y: patch.y !== undefined ? patch.y : widget.y,
+      width: patch.width !== undefined ? patch.width : widget.width,
+      height: patch.height !== undefined ? patch.height : widget.height,
     }
+    assertWidgetPlacement({
+      ...nextGeometry,
+      pageIndex: patch.pageIndex !== undefined ? patch.pageIndex : widget.pageIndex,
+      docIndex: patch.docIndex !== undefined ? patch.docIndex : widget.docIndex,
+    })
     const geometryPatch = patch.x !== undefined
       || patch.y !== undefined
       || patch.width !== undefined
       || patch.height !== undefined
 
-    if (patch.x !== undefined) widget.x = patch.x
-    if (patch.y !== undefined) widget.y = patch.y
-    if (patch.width !== undefined) widget.width = patch.width
-    if (patch.height !== undefined) widget.height = patch.height
-
-    if (syncOverlay && geometryPatch) {
-      if (!syncOverlayGeometry(widget)) {
-        widget.x = previousGeometry.x
-        widget.y = previousGeometry.y
-        widget.width = previousGeometry.width
-        widget.height = previousGeometry.height
-        throw new Error(
-          `Overlay rejected geometry update for widget "${widget.id}"`
-        )
-      }
+    // Commit the model only after the overlay accepts the proposed geometry.
+    if (syncOverlay && geometryPatch && !syncOverlayGeometry({ ...widget, ...nextGeometry })) {
+      throw new Error(
+        `Overlay rejected geometry update for widget "${widget.id}"`
+      )
     }
+    Object.assign(widget, nextGeometry)
 
     if (patch.pageIndex !== undefined) widget.pageIndex = patch.pageIndex
     if (patch.docIndex !== undefined) widget.docIndex = patch.docIndex
@@ -892,19 +899,7 @@ export function createFormEditor(
     if (!widget) return undefined
 
     const placement = elementObjectToFormWidgetPlacement(element, location)
-    widget.x = placement.x
-    widget.y = placement.y
-    widget.width = placement.width
-    widget.height = placement.height
-    widget.pageIndex = placement.pageIndex
-    if (placement.docIndex !== undefined) {
-      widget.docIndex = placement.docIndex
-    }
-    if (placement.elementId !== undefined) {
-      widget.elementId = placement.elementId
-    }
-
-    return widget
+    return updateWidget(widget.id, placement, { syncOverlay: false })
   }
 
   return {

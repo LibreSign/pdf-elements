@@ -21,6 +21,35 @@ const makeDoc = () => ({
 })
 
 describe('form editing over PDFElements overlay API', () => {
+  it.each([
+    { name: 'non-finite x', docIndex: 0, pageIndex: 1, payload: { x: NaN } },
+    { name: 'negative width', docIndex: 0, pageIndex: 1, payload: { width: -1 } },
+    { name: 'infinite height', docIndex: 0, pageIndex: 1, payload: { height: Infinity } },
+    { name: 'invalid document index', docIndex: NaN, pageIndex: 1, payload: {} },
+    { name: 'fractional page index', docIndex: 0, pageIndex: 0.5, payload: {} },
+  ])('rejects a move with $name without losing the original overlay', ({ docIndex, pageIndex, payload }) => {
+    const wrapper = shallowMount(PDFElements, {
+      props: { initFiles: [] },
+      global: { stubs: { PDFPage: true, DraggableElement: true } },
+    })
+    const ctx = wrapper.vm as any
+    const doc = makeDoc()
+    const original = { id: 'widget', x: 10, y: 10, width: 20, height: 20 }
+    doc.allObjects[0].push(original)
+    ctx.pdfDocuments = [doc]
+    ctx.objectIndexCache = { '0-widget': 0 }
+    ctx.getPageSize = vi.fn(() => ({ width: 300, height: 400 }))
+
+    expect(ctx.moveObjectToPage(docIndex, 'widget', pageIndex, payload)).toBe(false)
+    expect(doc.allObjects).toEqual([[original], []])
+    expect(ctx.objectIndexCache['0-widget']).toBe(0)
+
+    expect(ctx.moveObjectToPage(0, 'widget', 1, { x: 30 })).toBe(true)
+    expect(doc.allObjects).toEqual([[], [{ ...original, x: 30 }]])
+    expect(ctx.objectIndexCache['0-widget']).toBe(1)
+    wrapper.unmount()
+  })
+
   it('places and moves form widgets through the public overlay methods', () => {
     const wrapper = shallowMount(PDFElements, {
       props: { initFiles: [] },

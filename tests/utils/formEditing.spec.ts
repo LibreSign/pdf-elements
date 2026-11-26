@@ -47,6 +47,73 @@ function createOverlayAdapter(options: { rewriteIds?: boolean } = {}) {
 }
 
 describe('createFormEditor', () => {
+  it.each([
+    { name: 'non-finite coordinate', patch: { x: NaN } },
+    { name: 'negative width', patch: { width: -1 } },
+    { name: 'infinite height', patch: { height: Infinity } },
+    { name: 'negative page index', patch: { pageIndex: -1 } },
+    { name: 'fractional document index', patch: { docIndex: 0.5 } },
+  ])('rejects $name without changing the model', ({ patch }) => {
+    const editor = createFormEditor()
+    const field = editor.createField({ type: 'text', name: 'geometry' })
+    const input = { fieldId: field.id, pageIndex: 0, x: 10, y: 10, width: 20, height: 20 }
+    const beforePlacement = editor.getSnapshot()
+
+    expect(() => editor.placeWidget({ ...input, ...patch })).toThrow()
+    expect(editor.getSnapshot()).toEqual(beforePlacement)
+
+    const widget = editor.placeWidget(input)
+    const beforeUpdate = editor.getSnapshot()
+    expect(() => editor.updateWidget(widget.id, patch)).toThrow()
+    expect(editor.getSnapshot()).toEqual(beforeUpdate)
+  })
+
+  it('keeps the model unchanged when the overlay throws during a geometry update', () => {
+    const { adapter, objects } = createOverlayAdapter()
+    const editor = createFormEditor({ overlay: adapter })
+    const field = editor.createField({ type: 'text', name: 'geometry' })
+    const widget = editor.placeWidget({
+      fieldId: field.id, pageIndex: 0, x: 10, y: 10, width: 20, height: 20,
+    })
+    const before = editor.getSnapshot()
+    adapter.updateObject.mockImplementationOnce(() => {
+      throw new Error('Host update failed')
+    })
+
+    expect(() => editor.updateWidget(widget.id, { x: 50 })).toThrow('Host update failed')
+    expect(editor.getSnapshot()).toEqual(before)
+    expect(objects[0].x).toBe(10)
+
+    editor.updateWidget(widget.id, { x: 50 })
+    expect(editor.getWidget(widget.id)?.x).toBe(50)
+    expect(objects[0].x).toBe(50)
+  })
+
+  it('rejects invalid geometry from overlay synchronization without changing the model', () => {
+    const editor = createFormEditor()
+    const field = editor.createField({ type: 'text', name: 'geometry' })
+    const widget = editor.placeWidget({
+      fieldId: field.id, pageIndex: 0, x: 10, y: 10, width: 20, height: 20,
+      elementId: 'overlay',
+    })
+    const before = editor.getSnapshot()
+    expect(() => editor.syncFromOverlay({
+      id: 'overlay', x: NaN, y: 10, width: 20, height: 20,
+    }, { pageIndex: 0 })).toThrow()
+    expect(editor.getSnapshot()).toEqual(before)
+    expect(editor.getWidget(widget.id)?.x).toBe(10)
+  })
+
+  it('rejects invalid interactive placement dimensions before starting the overlay', () => {
+    const { adapter } = createOverlayAdapter()
+    const editor = createFormEditor({ overlay: adapter })
+    const field = editor.createField({ type: 'text', name: 'geometry' })
+
+    expect(() => editor.beginPlaceWidget({ fieldId: field.id, width: -1 })).toThrow()
+    expect(editor.isPlacingWidget()).toBe(false)
+    expect(adapter.startAddingElement).not.toHaveBeenCalled()
+  })
+
   it('creates fields and places multiple widgets without mixing property levels', () => {
     const editor = createFormEditor()
     const field = editor.createField({

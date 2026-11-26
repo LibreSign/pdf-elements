@@ -1197,9 +1197,11 @@ export default defineComponent({
     },
 
     moveObjectToPage(docIndex, objectId, pageIndex, payload = {}) {
-      if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return false
+      if (!Number.isInteger(docIndex) || docIndex < 0 || docIndex >= this.pdfDocuments.length) return false
       const doc = this.pdfDocuments[docIndex]
-      if (pageIndex < 0 || pageIndex >= doc.pages.length) return false
+      if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
+      const targetObjects = doc.allObjects[pageIndex]
+      if (!targetObjects) return false
 
       const cacheKey = `${docIndex}-${objectId}`
       let currentPageIndex = this.objectIndexCache[cacheKey]
@@ -1223,7 +1225,10 @@ export default defineComponent({
       }
       const { width: pageWidth, height: pageHeight } = this.getPageSize(docIndex, pageIndex)
       if (
-        nextObject.x < 0
+        ![nextObject.x, nextObject.y, nextObject.width, nextObject.height].every(Number.isFinite)
+        || nextObject.width < 0
+        || nextObject.height < 0
+        || nextObject.x < 0
         || nextObject.y < 0
         || nextObject.x + nextObject.width > pageWidth
         || nextObject.y + nextObject.height > pageHeight
@@ -1237,7 +1242,7 @@ export default defineComponent({
       }
 
       currentObjects.splice(objectIndex, 1)
-      doc.allObjects[pageIndex].push(nextObject)
+      targetObjects.push(nextObject)
       this.objectIndexCache[cacheKey] = pageIndex
       return true
     },

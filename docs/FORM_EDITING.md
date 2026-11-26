@@ -84,6 +84,8 @@ editor.updateField(field.id, { value: 'red' })
 
 Supported foundation path: programmatic `updateWidget` (optionally synced to the overlay) and host-driven `syncFromOverlay` when the host already knows the new geometry.
 
+The editor rejects non-finite coordinates, negative sizes and invalid page/document indices before changing the model. A rejected or throwing overlay geometry update leaves the model's previous geometry unchanged.
+
 `PDFElements` drag/resize currently updates overlays internally without a dedicated public geometry event. Until such an event exists, hosts that need canvas drag to update the form model must observe their own integration points and call:
 
 ```ts

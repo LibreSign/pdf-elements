@@ -336,6 +336,19 @@ function assertJsonData(value: unknown, ancestors = new Set<object>()): void {
   ancestors.delete(value)
 }
 
+/** Shared placement constraints for persisted models and editor operations. */
+export function isValidFormWidgetPlacement(
+  widget: Pick<PDFFormWidget, 'pageIndex' | 'docIndex' | 'x' | 'y' | 'width' | 'height'> | Record<string, unknown>
+): boolean {
+  const index = (entry: unknown) => typeof entry === 'number' && Number.isInteger(entry) && entry >= 0
+  const finite = (entry: unknown): entry is number => typeof entry === 'number' && Number.isFinite(entry)
+  return index(widget.pageIndex)
+    && (widget.docIndex === undefined || index(widget.docIndex))
+    && finite(widget.x) && finite(widget.y)
+    && finite(widget.width) && widget.width >= 0
+    && finite(widget.height) && widget.height >= 0
+}
+
 function assertModelShape(raw: unknown): asserts raw is PDFFormModel {
   if (!isPlainRecord(raw)) throw new Error('Form model must be a plain object')
   if (!Array.isArray(raw.fields) || !Array.isArray(raw.widgets)) {
@@ -364,13 +377,9 @@ function assertModelShape(raw: unknown): asserts raw is PDFFormModel {
       throw new Error('Invalid form field properties')
     }
   }
-  const index = (entry: unknown) => typeof entry === 'number' && Number.isInteger(entry) && entry >= 0
   for (const widget of raw.widgets) {
     if (!isPlainRecord(widget) || !id(widget.id) || !id(widget.fieldId)
-      || !index(widget.pageIndex) || !optional(widget, 'docIndex', index)
-      || !['x', 'y', 'width', 'height'].every(key =>
-        typeof widget[key] === 'number' && Number.isFinite(widget[key]))
-      || (widget.width as number) < 0 || (widget.height as number) < 0
+      || !isValidFormWidgetPlacement(widget)
       || !optional(widget, 'exportValue', string) || !optional(widget, 'elementId', id)
       || !optional(widget, 'metadata', isPlainRecord)) {
       throw new Error('Invalid form widget properties')
