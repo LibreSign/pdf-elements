@@ -162,4 +162,17 @@ describe('PDFPage business rules', () => {
 
     expect(cancel).toHaveBeenCalled()
   })
+
+  it('cancels a render in flight when the page size changes', async () => {
+    ;(HTMLCanvasElement.prototype as any).getContext = vi.fn(() => ({}))
+    const cancel = vi.fn()
+    const page = makePage()
+    page.render = vi.fn(() => ({ promise: new Promise<void>(() => {}), cancel }))
+    const wrapper = mount(PDFPage, { props: { page: Promise.resolve(page), scale: 1 } })
+    await flushPromises()
+    expect(cancel).not.toHaveBeenCalled()
+    await wrapper.setProps({ scale: 2 })
+    await flushPromises()
+    expect(cancel).toHaveBeenCalled()
+  })
 })

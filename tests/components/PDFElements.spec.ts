@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { shallowMount } from '@vue/test-utils'
+import { mount, shallowMount, flushPromises } from '@vue/test-utils'
+import { markRaw } from 'vue'
 import PDFElements from '../../src/components/PDFElements.vue'
 
 const makeDoc = () => ({
@@ -1191,5 +1192,106 @@ describe('PDFElements page navigation', () => {
     expect(ctx.goToPage(0, '0' as unknown as number)).toBe(false)
     expect(ctx.goToPage(0, 'length' as unknown as number)).toBe(false)
     expect(ctx.goToPage(0, 0.5)).toBe(false)
+  })
+
+  it('stays ready when the scale returns to the one the pages already reserved', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    const initialScale = ctx.scale
+    ctx.commitZoom(0.5)
+    ctx.commitZoom(initialScale)
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(ctx.pendingNavigation).toBeNull()
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('does not trust a geometry report made for another scale', () => {
+    const { ctx } = setup([stacked(400, 400)], { ready: false })
+    ctx.onGeometry(0, 0, { scale: ctx.scale + 1 })
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(false)
+    ctx.onGeometry(0, 0, { scale: ctx.scale })
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(true)
+  })
+
+  it('keeps the request until the whole layout is known and corrects an early clamp', () => {
+    const { ctx } = setup([stacked(400, 400, 400)], { ready: false })
+    const scrollSpy = vi.spyOn(ctx, 'scrollToPage')
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
+    // the last page is still unknown, so the scroll range may still grow
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 1 })
+    ctx.onGeometry(0, 2)
+    expect(scrollSpy).toHaveBeenCalledTimes(2)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('keeps the current page when asked right after a zoom, before the pages report their size', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    expect(ctx.goToPage(1)).toBe(true)
+    ctx.commitZoom(0.5)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+})
+
+describe('PDFElements with a real PDFPage', () => {
+  const makeRealPage = (width: number, height: number) => ({
+    getViewport: ({ scale }: { scale: number }) => ({ width: width * scale, height: height * scale }),
+    // The canvas render never finishes.
+    render: vi.fn(() => ({ promise: new Promise<void>(() => {}), cancel: vi.fn() })),
+  })
+
+  it('navigates before the canvas render completes', async () => {
+    ;(HTMLCanvasElement.prototype as any).getContext = vi.fn(() => ({}))
+    const scrollTo = vi.fn()
+    vi.stubGlobal('scrollTo', scrollTo)
+    const wrapper = mount(PDFElements, {
+      props: { initFiles: [] },
+      global: { stubs: { DraggableElement: true } },
+    })
+    const ctx = wrapper.vm as any
+    const pages = [makeRealPage(612, 792), makeRealPage(792, 612), makeRealPage(300, 200)]
+    ctx.pdfDocuments = [{
+      name: 'doc', file: null, pdfDoc: null, numPages: 3,
+      pages: markRaw(pages.map((p) => Promise.resolve(p))),
+      pageWidths: [612, 792, 300], pagesScale: [1, 1, 1],
+      allObjects: [[], [], []],
+    }]
+    await flushPromises()
+
+    expect(pages[0].render).toHaveBeenCalled()
+    expect(wrapper.findAllComponents({ name: 'PDFPage' }).some((c) => c.emitted('onMeasure'))).toBe(false)
+    expect(ctx.goToPage(2)).toBe(true)
+    expect(ctx.pendingNavigation).toBeNull()
+    expect(scrollTo).toHaveBeenCalled()
+    expect(wrapper.emitted('pdf-elements:page-change')?.slice(-1)[0]).toEqual([{ docIndex: 0, pageIndex: 2 }])
+    expect(ctx.goToPage(3)).toBe(false)
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+
+  it('follows a scrollable ancestor of the viewer', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const wrapper = mount(PDFElements, {
+      attachTo: host,
+      props: { initFiles: [] },
+      global: { stubs: { PDFPage: true, DraggableElement: true } },
+    })
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1)
+    host.dispatchEvent(new Event('scroll'))
+    expect(raf).toHaveBeenCalled()
+    raf.mockClear()
+    // scrolling an unrelated element does not trigger a recalculation
+    const other = document.createElement('div')
+    document.body.appendChild(other)
+    other.dispatchEvent(new Event('scroll'))
+    expect(raf).not.toHaveBeenCalled()
+    raf.mockRestore()
+    wrapper.unmount()
+    host.remove()
+    other.remove()
   })
 })

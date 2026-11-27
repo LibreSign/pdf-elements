@@ -20,7 +20,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 :page="page"
                 :scale="scale"
                 @onMeasure="onMeasure($event, docIndex, pIndex)"
-                @onGeometry="onGeometry(docIndex, pIndex)"
+                @onGeometry="onGeometry(docIndex, pIndex, $event)"
               />
                 <div
                 class="overlay"
@@ -257,8 +257,8 @@ export default defineComponent({
       currentPageRafId: 0,
       resizeObserver: null as ResizeObserver | null,
       pendingNavigation: null as { docIndex: number; pageIndex: number } | null,
-      _geometryReady: markRaw({}) as Record<string, boolean>,
-      _geometryScale: this.initialScale as number,
+      // Scale at which each page last reserved its size; a page is ready when it matches the current scale.
+      _geometryReady: markRaw({}) as Record<string, number>,
       _pageEntries: markRaw([]) as Array<{ docIndex: number; pageIndex: number }>,
       _pageEntryIndex: markRaw({}) as Record<string, number>,
       _pageEntriesSource: null as unknown,
@@ -313,9 +313,14 @@ export default defineComponent({
     window.addEventListener('scroll', this.onViewportScroll, { passive: true })
     window.addEventListener('resize', this.onViewportScroll)
     this.$el?.addEventListener('scroll', this.onViewportScroll, { passive: true })
+    // `scroll` does not bubble: capture it to follow a scrollable ancestor hosting the viewer.
+    window.addEventListener('scroll', this.onAncestorScroll, { passive: true, capture: true })
     if (typeof ResizeObserver !== 'undefined' && this.$el) {
       this.resizeObserver = markRaw(new ResizeObserver(() => this.scheduleCurrentPageUpdate()))
       this.resizeObserver.observe(this.$el)
+      for (let el = this.$el.parentElement; el && el !== document.body; el = el.parentElement) {
+        this.resizeObserver.observe(el)
+      }
     }
     this.$el?.addEventListener('wheel', this.boundHandleWheel, { passive: false })
     this.$el?.addEventListener('touchstart', this.boundHandleTouchStart, { passive: false })
@@ -346,6 +351,7 @@ export default defineComponent({
     }
     this.detachAddingListeners()
     window.removeEventListener('scroll', this.onViewportScroll)
+    window.removeEventListener('scroll', this.onAncestorScroll, { capture: true })
     window.removeEventListener('resize', this.onViewportScroll)
     this.$el?.removeEventListener('scroll', this.onViewportScroll)
     if (this.viewportRafId) {
@@ -381,12 +387,6 @@ export default defineComponent({
       this.pdfDocuments.forEach((doc) => {
         doc.pagesScale = doc.pagesScale.map(() => normalizedScale)
       })
-      // The pages re-reserve their size for the new scale (PDFPage.syncGeometry):
-      // until they report it, navigation must not use the previous layout.
-      if (normalizedScale !== this._geometryScale) {
-        this._geometryScale = normalizedScale
-        this._geometryReady = markRaw({})
-      }
       this._pageMeasurementCache = markRaw({})
       this.cachePageBounds()
     },
@@ -438,7 +438,6 @@ export default defineComponent({
       this.pdfDocuments = docs
       this._pageMeasurementCache = markRaw({})
       this._geometryReady = markRaw({})
-      this._geometryScale = this.scale
       this.currentVisiblePage = null
       this.pendingNavigation = null
       if (docs.length) {
@@ -813,6 +812,13 @@ export default defineComponent({
       return pageComponent ? (pageComponent.$el || pageComponent) : null
     },
 
+    onAncestorScroll(event) {
+      const target = event?.target
+      if (target && target !== this.$el && target !== document && target.contains?.(this.$el)) {
+        this.onViewportScroll()
+      }
+    },
+
     onViewportScroll() {
       if (this.viewportRafId) return
       this.viewportRafId = window.requestAnimationFrame(() => {
@@ -864,7 +870,11 @@ export default defineComponent({
     },
 
     isPageGeometryReady(docIndex, pageIndex) {
-      return !!this._geometryReady[`${docIndex}-${pageIndex}`]
+      return this._geometryReady[`${docIndex}-${pageIndex}`] === this.scale
+    },
+
+    isLayoutComplete() {
+      return this.getPageEntries().every((entry) => this.isPageGeometryReady(entry.docIndex, entry.pageIndex))
     },
 
     /** A page's position depends on every page before it, so all of them need their geometry. */
@@ -951,7 +961,8 @@ export default defineComponent({
         if (rect.top >= viewHeight) break
         if (this.isPageGeometryReady(rect.docIndex, rect.pageIndex)) rects.push(rect)
       }
-      return findMostVisiblePage(rects, viewHeight, { viewWidth, current: known })
+      // While the layout is unknown (e.g. right after a zoom) keep reporting the known page.
+      return findMostVisiblePage(rects, viewHeight, { viewWidth, current: known }) ?? known
     },
 
     setCurrentPage(page) {
@@ -974,9 +985,9 @@ export default defineComponent({
       })
     },
 
-    onGeometry(docIndex, pageIndex) {
+    onGeometry(docIndex, pageIndex, e) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
-      this._geometryReady[`${docIndex}-${pageIndex}`] = true
+      this._geometryReady[`${docIndex}-${pageIndex}`] = e?.scale ?? this.scale
       this.flushPendingNavigation()
       this.scheduleCurrentPageUpdate()
     },
@@ -984,8 +995,10 @@ export default defineComponent({
     flushPendingNavigation() {
       const target = this.pendingNavigation
       if (!target || !this.isNavigationReady(target.docIndex, target.pageIndex)) return
-      this.pendingNavigation = null
       this.scrollToPage(target.docIndex, target.pageIndex)
+      // Pages after the target may still grow and extend the scroll range: keep the
+      // request until the whole layout is known, so an early clamp is corrected.
+      if (this.isLayoutComplete()) this.pendingNavigation = null
     },
 
     scrollToPage(docIndex, pageIndex) {
@@ -1015,12 +1028,11 @@ export default defineComponent({
       const doc = this.pdfDocuments[docIndex]
       if (!doc || !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
       this.getPageEntries()
-      if (!this.isNavigationReady(docIndex, pageIndex)) {
-        this.pendingNavigation = { docIndex, pageIndex }
-        return true
-      }
-      this.pendingNavigation = null
-      return this.scrollToPage(docIndex, pageIndex)
+      this.pendingNavigation = { docIndex, pageIndex }
+      if (!this.isNavigationReady(docIndex, pageIndex)) return true
+      const scrolled = this.scrollToPage(docIndex, pageIndex)
+      if (!scrolled || this.isLayoutComplete()) this.pendingNavigation = null
+      return scrolled
     },
 
     handleMouseMove(event) {
@@ -1565,10 +1577,7 @@ export default defineComponent({
     onMeasure(e, docIndex, pageIndex) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       this._pageMeasurementCache[`${docIndex}-${pageIndex}`] = null
-      // A render that finished for an older scale says nothing about the current layout.
-      if (e?.scale === undefined || e.scale === this.scale) {
-        this._geometryReady[`${docIndex}-${pageIndex}`] = true
-      }
+      this._geometryReady[`${docIndex}-${pageIndex}`] = e?.scale ?? this.scale
       this.cachePageBoundsForPage(docIndex, pageIndex)
       this.scheduleCurrentPageUpdate()
       if (this.autoFitZoom) {

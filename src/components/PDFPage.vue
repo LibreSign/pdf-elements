@@ -73,9 +73,21 @@ export default defineComponent({
       const canvas = this.$refs.canvas
       if (!canvas) return
       const viewport = _page.getViewport({ scale: this.dynamicScale })
-      // Assigning a size clears the canvas: only do it when the size changes.
-      if (canvas.width !== viewport.width) canvas.width = viewport.width
-      if (canvas.height !== viewport.height) canvas.height = viewport.height
+      const width = Math.floor(viewport.width)
+      const height = Math.floor(viewport.height)
+      // Assigning a size clears the canvas (and resets its context), which would
+      // corrupt a render still painting: cancel it, a new one is already queued.
+      if (canvas.width !== width || canvas.height !== height) {
+        if (this.renderTask) {
+          try {
+            this.renderTask.cancel()
+          } catch {
+            // Ignore render cancellation errors.
+          }
+        }
+        canvas.width = width
+        canvas.height = height
+      }
       this.$emit('onGeometry', { scale: this.dynamicScale })
     },
     async render() {
@@ -108,7 +120,13 @@ export default defineComponent({
           canvasContext: context,
           viewport,
         })
-        await this.renderTask.promise
+        try {
+          await this.renderTask.promise
+        } catch (error) {
+          // Cancelled because the size changed; the queued render takes over.
+          if ((error as { name?: string })?.name === 'RenderingCancelledException') return
+          throw error
+        }
         this.measure()
       } finally {
         this.isRendering = false
