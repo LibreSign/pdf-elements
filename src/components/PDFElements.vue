@@ -995,10 +995,25 @@ export default defineComponent({
     flushPendingNavigation() {
       const target = this.pendingNavigation
       if (!target || !this.isNavigationReady(target.docIndex, target.pageIndex)) return
-      this.scrollToPage(target.docIndex, target.pageIndex)
-      // Pages after the target may still grow and extend the scroll range: keep the
-      // request until the whole layout is known, so an early clamp is corrected.
-      if (this.isLayoutComplete()) this.pendingNavigation = null
+      this.settleNavigation(target, this.scrollToPage(target.docIndex, target.pageIndex))
+    },
+
+    /** Whether the page is aligned with the top of the scroll viewport (within a pixel). */
+    isPageAtTop(docIndex, pageIndex) {
+      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
+      if (!wrapper?.getBoundingClientRect) return false
+      const viewport = this.getScrollViewport(this.getScrollContainer())
+      return Math.abs(wrapper.getBoundingClientRect().top - viewport.top) <= 1
+    },
+
+    /**
+     * A request that could not reach the page (scroll range clamped while later pages are
+     * still unknown) is kept to be corrected once they grow. One that got there is done,
+     * so later geometry reports never undo a scroll made by the user.
+     */
+    settleNavigation(target, scrolled) {
+      const keep = scrolled && !this.isLayoutComplete() && !this.isPageAtTop(target.docIndex, target.pageIndex)
+      if (!keep) this.pendingNavigation = null
     },
 
     scrollToPage(docIndex, pageIndex) {
@@ -1031,7 +1046,7 @@ export default defineComponent({
       this.pendingNavigation = { docIndex, pageIndex }
       if (!this.isNavigationReady(docIndex, pageIndex)) return true
       const scrolled = this.scrollToPage(docIndex, pageIndex)
-      if (!scrolled || this.isLayoutComplete()) this.pendingNavigation = null
+      this.settleNavigation({ docIndex, pageIndex }, scrolled)
       return scrolled
     },
 
@@ -1652,7 +1667,11 @@ export default defineComponent({
       const optimalScale = this.calculateOptimalScale(maxCanvasWidth)
       this.autoFitApplied = true
       if (Math.abs(optimalScale - this.scale) > 0.01) {
+        // A page the host navigated to must stay at the top when the fit changes the layout.
+        const current = this.currentVisiblePage
+        const pinned = current && this.isPageAtTop(current.docIndex, current.pageIndex) ? { ...current } : null
         this.commitZoom(optimalScale)
+        if (pinned) this.pendingNavigation = pinned
       }
     },
   },

@@ -1214,7 +1214,8 @@ describe('PDFElements page navigation', () => {
   })
 
   it('keeps the request until the whole layout is known and corrects an early clamp', () => {
-    const { ctx } = setup([stacked(400, 400, 400)], { ready: false })
+    // The scroll range is still too short to reach page 1 (clamped at 100).
+    const { ctx } = setup([stacked(400, 400, 400)], { ready: false, maxScroll: 100 })
     const scrollSpy = vi.spyOn(ctx, 'scrollToPage')
     ctx.onGeometry(0, 0)
     ctx.onGeometry(0, 1)
@@ -1225,6 +1226,27 @@ describe('PDFElements page navigation', () => {
     ctx.onGeometry(0, 2)
     expect(scrollSpy).toHaveBeenCalledTimes(2)
     expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('drops a request that reached its page so late geometry never undoes a user scroll', () => {
+    const { ctx, root } = setup([stacked(400, 400, 400)], { ready: false })
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(root.scrollTop).toBe(420)
+    expect(ctx.pendingNavigation).toBeNull()
+    root.scrollTop = 0
+    ctx.onGeometry(0, 2)
+    expect(root.scrollTop).toBe(0)
+  })
+
+  it('keeps the navigated page at the top when auto-fit changes the zoom', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    vi.spyOn(ctx, 'calculateOptimalScale').mockReturnValue(0.5)
+    expect(ctx.goToPage(1)).toBe(true)
+    ctx.adjustZoomToFit(true)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 1 })
   })
 
   it('keeps the current page when asked right after a zoom, before the pages report their size', () => {
