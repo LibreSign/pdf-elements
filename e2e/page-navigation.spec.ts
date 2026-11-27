@@ -129,6 +129,18 @@ test.describe("page navigation", () => {
     await expect(currentPage(page)).toHaveText("Document 1 · Page 3");
   });
 
+  test("applies a navigation requested while the viewer is hidden once it is shown", async ({ page }) => {
+    await loadFixture(page);
+    const viewer = page.locator(".viewer");
+    await viewer.evaluate((el) => { (el as HTMLElement).style.display = "none"; });
+    // e.g. the viewer sits in an inactive tab: the request is accepted but there is no layout yet
+    expect(await goToPage(page, 2)).toBe(true);
+    await viewer.evaluate((el) => { (el as HTMLElement).style.display = ""; });
+
+    await expect(currentPage(page)).toHaveText("Document 1 · Page 3");
+    await expect.poll(async () => Math.abs(await offsetFromTop(page, 2))).toBeLessThan(2);
+  });
+
   test("navigates across multiple documents", async ({ page }) => {
     await loadFixture(page);
     await page.locator('input[type="file"]').setInputFiles(fixture);

@@ -932,6 +932,8 @@ describe('PDFElements page navigation', () => {
     })
     const root = ctx.$el as HTMLElement
     root.getBoundingClientRect = () => ({ top: 0, bottom: viewHeight, left: 0, right: viewWidth } as DOMRect)
+    // jsdom reports detached elements as not visible
+    ;(root as any).checkVisibility = () => true
     Object.defineProperty(root, 'clientHeight', { value: viewHeight, configurable: true })
     Object.defineProperty(root, 'clientWidth', { value: viewWidth, configurable: true })
     Object.defineProperty(root, 'scrollHeight', { value: 100000, configurable: true })
@@ -1288,6 +1290,26 @@ describe('PDFElements page navigation', () => {
     expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 2 })
   })
 
+  it('keeps a request made while the viewer is hidden and applies it once it is visible', () => {
+    const observers: Array<() => void> = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: () => void) { observers.push(cb) }
+      observe() {}
+      disconnect() {}
+    })
+    const { ctx, root } = setup([stacked(400, 400, 400)])
+    let visible = false
+    ;(root as any).checkVisibility = () => visible
+    expect(ctx.goToPage(2)).toBe(true)
+    expect(root.scrollTop).toBe(0)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 2 })
+    visible = true
+    observers[0]()
+    expect(root.scrollTop).toBe(840)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 2 })
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
   it('keeps the current page when asked right after a zoom, before the pages report their size', () => {
     const { ctx } = setup([stacked(400, 400)])
     vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
@@ -1313,6 +1335,7 @@ describe('PDFElements with a real PDFPage', () => {
       global: { stubs: { DraggableElement: true } },
     })
     const ctx = wrapper.vm as any
+    ;(wrapper.element as any).checkVisibility = () => true
     const pages = [makeRealPage(612, 792), makeRealPage(792, 612), makeRealPage(300, 200)]
     ctx.pdfDocuments = [{
       name: 'doc', file: null, pdfDoc: null, numPages: 3,

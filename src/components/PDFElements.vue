@@ -316,7 +316,11 @@ export default defineComponent({
     // `scroll` does not bubble: capture it to follow a scrollable ancestor hosting the viewer.
     window.addEventListener('scroll', this.onAncestorScroll, { passive: true, capture: true })
     if (typeof ResizeObserver !== 'undefined' && this.$el) {
-      this.resizeObserver = markRaw(new ResizeObserver(() => this.scheduleCurrentPageUpdate()))
+      this.resizeObserver = markRaw(new ResizeObserver(() => {
+        // Also fires when a hidden viewer (e.g. in an inactive tab) becomes visible.
+        this.flushPendingNavigation()
+        this.scheduleCurrentPageUpdate()
+      }))
       this.resizeObserver.observe(this.$el)
       for (let el = this.$el.parentElement; el && el !== document.body; el = el.parentElement) {
         this.resizeObserver.observe(el)
@@ -994,8 +998,14 @@ export default defineComponent({
 
     flushPendingNavigation() {
       const target = this.pendingNavigation
-      if (!target || !this.isNavigationReady(target.docIndex, target.pageIndex)) return
+      if (!target || !this.isViewerVisible() || !this.isNavigationReady(target.docIndex, target.pageIndex)) return
       this.settleNavigation(target, this.scrollToPage(target.docIndex, target.pageIndex))
+    },
+
+    /** A viewer inside `display: none` (e.g. a hidden tab) has no layout to scroll. */
+    isViewerVisible() {
+      const el = this.$el
+      return typeof el?.checkVisibility === 'function' ? el.checkVisibility() : true
     },
 
     /** Whether the page is aligned with the top of the scroll viewport (within a pixel). */
@@ -1047,7 +1057,7 @@ export default defineComponent({
       // markRaw keeps the object identity, so it can be told apart from a newer request.
       const request = markRaw({ docIndex, pageIndex })
       this.pendingNavigation = request
-      if (!this.isNavigationReady(docIndex, pageIndex)) return true
+      if (!this.isNavigationReady(docIndex, pageIndex) || !this.isViewerVisible()) return true
       const scrolled = this.scrollToPage(docIndex, pageIndex)
       this.settleNavigation(request, scrolled)
       return scrolled
