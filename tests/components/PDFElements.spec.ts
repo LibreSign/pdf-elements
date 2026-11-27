@@ -920,7 +920,7 @@ describe('PDFElements business rules', () => {
 })
 
 describe('PDFElements page navigation', () => {
-  type Box = { top: number; height: number; left?: number; width?: number }
+  type Box = { top: number; height: number; left?: number; width?: number; footer?: number }
   // boxes[docIndex][pageIndex]: absolute layout of each page wrapper
   const setup = (boxes: Box[][], { maxScroll = Infinity, ready = true, viewHeight = 500, viewWidth = 800 } = {}) => {
     const { wrapper, ctx } = makeWrapper()
@@ -941,7 +941,8 @@ describe('PDFElements page navigation', () => {
       set: (value: number) => { scrollTop = Math.min(value, maxScroll) },
     })
     const layout = { boxes }
-    ctx.getPageWrapperElement = vi.fn((d: number, p: number) => {
+    // The wrapper also holds the page footer; the page bounds are the PDF page only.
+    const elementFor = (includeFooter: boolean) => (d: number, p: number) => {
       const box = layout.boxes[d]?.[p]
       if (!box) return null
       const left = box.left ?? 0
@@ -949,12 +950,14 @@ describe('PDFElements page navigation', () => {
       return {
         getBoundingClientRect: () => ({
           top: box.top - scrollTop,
-          bottom: box.top + box.height - scrollTop,
+          bottom: box.top + box.height + (includeFooter ? box.footer ?? 0 : 0) - scrollTop,
           left,
           right: left + width,
         }),
       }
-    })
+    }
+    ctx.getPageWrapperElement = vi.fn(elementFor(true))
+    ctx.getPageBoundsElement = vi.fn(elementFor(false))
     const markReady = () => {
       boxes.forEach((pages, d) => pages.forEach((_, p) => ctx.onGeometry(d, p)))
       flushFrames()
@@ -1143,9 +1146,50 @@ describe('PDFElements page navigation', () => {
     const { ctx, root } = setup([stacked(...Array.from({ length: 200 }, () => 400))])
     root.scrollTop = 420 * 100
     ctx.updateCurrentPage()
-    ctx.getPageWrapperElement.mockClear()
+    ctx.getPageBoundsElement.mockClear()
     root.scrollTop = 420 * 101
     expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 101 })
-    expect(ctx.getPageWrapperElement.mock.calls.length).toBeLessThan(10)
+    expect(ctx.getPageBoundsElement.mock.calls.length).toBeLessThan(10)
+  })
+
+  it('does not count the page footer as visible page area', () => {
+    // Page 0 is 100px high plus a 50px footer; scrolled by 100px only the footer is on screen.
+    const { ctx, root } = setup([[{ top: 0, height: 100, footer: 50 }, { top: 170, height: 2000 }]])
+    root.scrollTop = 100
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('navigates with the new layout when zoom and goToPage run in the same tick', () => {
+    const { wrapper, ctx, root, layout } = setup([stacked(400, 400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    ctx.commitZoom(0.5)
+    expect(ctx.goToPage(2)).toBe(true)
+    // The pages have not re-reserved their size for the new scale yet: nothing scrolled.
+    expect(root.scrollTop).toBe(0)
+    layout.boxes[0] = stacked(200, 200, 200)
+    layout.boxes[0].forEach((_, p) => ctx.onGeometry(0, p))
+    expect(root.scrollTop).toBe(440)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 2 })
+    const events = wrapper.emitted('pdf-elements:page-change') ?? []
+    expect(events[events.length - 1]).toEqual([{ docIndex: 0, pageIndex: 2 }])
+  })
+
+  it('ignores a render finished for an older scale when checking geometry', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    vi.spyOn(ctx, 'cachePageBoundsForPage').mockImplementation(() => {})
+    const initialScale = ctx.scale
+    ctx.commitZoom(0.5)
+    ctx.onMeasure({ scale: initialScale }, 0, 0)
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(false)
+    ctx.onMeasure({ scale: 0.5 }, 0, 0)
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(true)
+  })
+
+  it('rejects document indices that are not integers', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    expect(ctx.goToPage(0, '0' as unknown as number)).toBe(false)
+    expect(ctx.goToPage(0, 'length' as unknown as number)).toBe(false)
+    expect(ctx.goToPage(0, 0.5)).toBe(false)
   })
 })

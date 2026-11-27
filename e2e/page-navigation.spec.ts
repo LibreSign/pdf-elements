@@ -112,6 +112,23 @@ test.describe("page navigation", () => {
     expect(Math.abs(await offsetFromTop(page, 3))).toBeLessThan(2);
   });
 
+  test("navigates to the right page when zoom and goToPage run in the same tick", async ({ page }) => {
+    await loadFixture(page);
+    const accepted = await page.evaluate(() => {
+      const proxy = (document.querySelector(".pdf-elements-root") as any).__vueParentComponent.proxy;
+      proxy.commitZoom(0.5);
+      return proxy.goToPage(2) as boolean;
+    });
+    expect(accepted).toBe(true);
+
+    // The request waits for the pages to re-reserve their size, then lands on the new layout.
+    await expect(currentPage(page)).toHaveText("Document 1 · Page 3");
+    await expect.poll(async () => Math.abs(await offsetFromTop(page, 2))).toBeLessThan(2);
+    // ...and stays there once the zoomed pages finish rendering.
+    await page.waitForTimeout(1000);
+    await expect(currentPage(page)).toHaveText("Document 1 · Page 3");
+  });
+
   test("navigates across multiple documents", async ({ page }) => {
     await loadFixture(page);
     await page.locator('input[type="file"]').setInputFiles(fixture);

@@ -75,4 +75,12 @@ describe('findMostVisiblePage selection rules', () => {
     ]
     expect(findMostVisiblePage(rects, 500)).toEqual({ docIndex: 0, pageIndex: 0 })
   })
+
+  it('treats sub-pixel clipping as fully visible so the current page is kept', () => {
+    const rects = [
+      { docIndex: 0, pageIndex: 0, top: -0.3, bottom: 99.7 },
+      { docIndex: 0, pageIndex: 1, top: 148, bottom: 544 },
+    ]
+    expect(findMostVisiblePage(rects, 720, { current: { docIndex: 0, pageIndex: 0 } })).toEqual({ docIndex: 0, pageIndex: 0 })
+  })
 })

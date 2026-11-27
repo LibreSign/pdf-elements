@@ -258,6 +258,7 @@ export default defineComponent({
       resizeObserver: null as ResizeObserver | null,
       pendingNavigation: null as { docIndex: number; pageIndex: number } | null,
       _geometryReady: markRaw({}) as Record<string, boolean>,
+      _geometryScale: this.initialScale as number,
       _pageEntries: markRaw([]) as Array<{ docIndex: number; pageIndex: number }>,
       _pageEntryIndex: markRaw({}) as Record<string, number>,
       _pageEntriesSource: null as unknown,
@@ -380,6 +381,12 @@ export default defineComponent({
       this.pdfDocuments.forEach((doc) => {
         doc.pagesScale = doc.pagesScale.map(() => normalizedScale)
       })
+      // The pages re-reserve their size for the new scale (PDFPage.syncGeometry):
+      // until they report it, navigation must not use the previous layout.
+      if (normalizedScale !== this._geometryScale) {
+        this._geometryScale = normalizedScale
+        this._geometryReady = markRaw({})
+      }
       this._pageMeasurementCache = markRaw({})
       this.cachePageBounds()
     },
@@ -431,6 +438,7 @@ export default defineComponent({
       this.pdfDocuments = docs
       this._pageMeasurementCache = markRaw({})
       this._geometryReady = markRaw({})
+      this._geometryScale = this.scale
       this.currentVisiblePage = null
       this.pendingNavigation = null
       if (docs.length) {
@@ -893,10 +901,15 @@ export default defineComponent({
       return { top: 0, left: 0, width: window.innerWidth || 0, height: window.innerHeight || 0, scrollTop: window.scrollY || 0 }
     },
 
+    /** The PDF page box only: the wrapper also holds the footer, which is not page content. */
+    getPageBoundsElement(docIndex, pageIndex) {
+      return this.getPageCanvasElement(docIndex, pageIndex) || this.getPageWrapperElement(docIndex, pageIndex)
+    },
+
     getPageViewportRect(docIndex, pageIndex, containerRect) {
-      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
-      if (!wrapper?.getBoundingClientRect) return null
-      const rect = wrapper.getBoundingClientRect()
+      const element = this.getPageBoundsElement(docIndex, pageIndex)
+      if (!element?.getBoundingClientRect) return null
+      const rect = element.getBoundingClientRect()
       return {
         docIndex,
         pageIndex,
@@ -998,6 +1011,7 @@ export default defineComponent({
      * when the layout is not known yet, the latest request runs as soon as it is.
      */
     goToPage(pageIndex, docIndex = 0) {
+      if (!Number.isInteger(docIndex) || docIndex < 0) return false
       const doc = this.pdfDocuments[docIndex]
       if (!doc || !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
       this.getPageEntries()
@@ -1551,7 +1565,10 @@ export default defineComponent({
     onMeasure(e, docIndex, pageIndex) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       this._pageMeasurementCache[`${docIndex}-${pageIndex}`] = null
-      this._geometryReady[`${docIndex}-${pageIndex}`] = true
+      // A render that finished for an older scale says nothing about the current layout.
+      if (e?.scale === undefined || e.scale === this.scale) {
+        this._geometryReady[`${docIndex}-${pageIndex}`] = true
+      }
       this.cachePageBoundsForPage(docIndex, pageIndex)
       this.scheduleCurrentPageUpdate()
       if (this.autoFitZoom) {

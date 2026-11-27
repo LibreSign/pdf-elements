@@ -33,6 +33,14 @@ export interface MostVisiblePageOptions {
 }
 
 const FULLY_VISIBLE = 0.999
+/** Layout and scroll positions are rounded to device pixels: ignore up to 1px of clipping. */
+const SUBPIXEL_TOLERANCE = 1
+
+const visibleLength = (start: number, end: number, viewLength: number) => {
+  const length = end - start
+  const visible = Math.min(end, viewLength) - Math.max(start, 0)
+  return length - visible <= SUBPIXEL_TOLERANCE ? length : visible
+}
 
 /**
  * Fraction (0..1) of the page that is inside the viewport.
@@ -40,13 +48,13 @@ const FULLY_VISIBLE = 0.999
 export function getVisibleRatio(rect: PageViewportRect, viewHeight: number, viewWidth?: number) {
   const height = rect.bottom - rect.top
   if (height <= 0) return 0
-  const visibleHeight = Math.min(rect.bottom, viewHeight) - Math.max(rect.top, 0)
+  const visibleHeight = visibleLength(rect.top, rect.bottom, viewHeight)
   if (visibleHeight <= 0) return 0
   let widthRatio = 1
   if (rect.left !== undefined && rect.right !== undefined && viewWidth !== undefined) {
     const width = rect.right - rect.left
     if (width <= 0) return 0
-    const visibleWidth = Math.min(rect.right, viewWidth) - Math.max(rect.left, 0)
+    const visibleWidth = visibleLength(rect.left, rect.right, viewWidth)
     if (visibleWidth <= 0) return 0
     widthRatio = visibleWidth / width
   }
