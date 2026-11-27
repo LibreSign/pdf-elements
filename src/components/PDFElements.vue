@@ -985,6 +985,7 @@ export default defineComponent({
       if (this.currentPageRafId) return
       this.currentPageRafId = window.requestAnimationFrame(() => {
         this.currentPageRafId = 0
+        this.flushPendingNavigation()
         this.updateCurrentPage()
       })
     },
@@ -1057,7 +1058,12 @@ export default defineComponent({
       // markRaw keeps the object identity, so it can be told apart from a newer request.
       const request = markRaw({ docIndex, pageIndex })
       this.pendingNavigation = request
-      if (!this.isNavigationReady(docIndex, pageIndex) || !this.isViewerVisible()) return true
+      if (!this.isNavigationReady(docIndex, pageIndex)) return true
+      if (!this.isViewerVisible()) {
+        // Shown again before the resize observer reports it: retry on the next frame.
+        this.scheduleCurrentPageUpdate()
+        return true
+      }
       const scrolled = this.scrollToPage(docIndex, pageIndex)
       this.settleNavigation(request, scrolled)
       return scrolled

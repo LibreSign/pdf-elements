@@ -1310,6 +1310,17 @@ describe('PDFElements page navigation', () => {
     expect(ctx.pendingNavigation).toBeNull()
   })
 
+  it('applies a request made while hidden on the next frame when the viewer is shown again quickly', () => {
+    const { ctx, root } = setup([stacked(400, 400, 400)])
+    let visible = false
+    ;(root as any).checkVisibility = () => visible
+    expect(ctx.goToPage(2)).toBe(true)
+    visible = true
+    flushFrames()
+    expect(root.scrollTop).toBe(840)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
   it('keeps the current page when asked right after a zoom, before the pages report their size', () => {
     const { ctx } = setup([stacked(400, 400)])
     vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
