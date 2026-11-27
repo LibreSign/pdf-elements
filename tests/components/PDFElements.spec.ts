@@ -1249,6 +1249,45 @@ describe('PDFElements page navigation', () => {
     expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 1 })
   })
 
+  it('does not pin the page when the auto-fit scale is below the minimum zoom and nothing changes', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    ctx.commitZoom(0.5)
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    expect(ctx.goToPage(1)).toBe(true)
+    vi.spyOn(ctx, 'calculateOptimalScale').mockReturnValue(0.457)
+    ctx.adjustZoomToFit(true)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('does not replace a newer request with the auto-fit pin', () => {
+    const { ctx } = setup([stacked(400, 400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    vi.spyOn(ctx, 'calculateOptimalScale').mockReturnValue(0.6)
+    expect(ctx.goToPage(1)).toBe(true)
+    ctx.pendingNavigation = { docIndex: 0, pageIndex: 2 }
+    ctx.adjustZoomToFit(true)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 2 })
+  })
+
+  it('keeps a request made by a page-change listener while the navigation lands', () => {
+    const { ctx } = setup([stacked(400, 400, 400)], { ready: false })
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    const setCurrentPage = ctx.setCurrentPage.bind(ctx)
+    let reentered = false
+    vi.spyOn(ctx, 'setCurrentPage').mockImplementation((page: { docIndex: number; pageIndex: number }) => {
+      setCurrentPage(page)
+      if (!reentered) {
+        reentered = true
+        ctx.goToPage(2)
+      }
+    })
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 2 })
+  })
+
   it('keeps the current page when asked right after a zoom, before the pages report their size', () => {
     const { ctx } = setup([stacked(400, 400)])
     vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})

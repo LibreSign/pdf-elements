@@ -1013,7 +1013,8 @@ export default defineComponent({
      */
     settleNavigation(target, scrolled) {
       const keep = scrolled && !this.isLayoutComplete() && !this.isPageAtTop(target.docIndex, target.pageIndex)
-      if (!keep) this.pendingNavigation = null
+      // The request may have been replaced meanwhile (e.g. by a page-change listener).
+      if (!keep && this.pendingNavigation === target) this.pendingNavigation = null
     },
 
     scrollToPage(docIndex, pageIndex) {
@@ -1043,10 +1044,12 @@ export default defineComponent({
       const doc = this.pdfDocuments[docIndex]
       if (!doc || !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
       this.getPageEntries()
-      this.pendingNavigation = { docIndex, pageIndex }
+      // markRaw keeps the object identity, so it can be told apart from a newer request.
+      const request = markRaw({ docIndex, pageIndex })
+      this.pendingNavigation = request
       if (!this.isNavigationReady(docIndex, pageIndex)) return true
       const scrolled = this.scrollToPage(docIndex, pageIndex)
-      this.settleNavigation({ docIndex, pageIndex }, scrolled)
+      this.settleNavigation(request, scrolled)
       return scrolled
     },
 
@@ -1664,14 +1667,16 @@ export default defineComponent({
         ))
       }
 
-      const optimalScale = this.calculateOptimalScale(maxCanvasWidth)
+      // Compare the scale that will really be applied: below the minimum zoom nothing changes.
+      const optimalScale = this.clampZoomScale(this.calculateOptimalScale(maxCanvasWidth))
       this.autoFitApplied = true
       if (Math.abs(optimalScale - this.scale) > 0.01) {
         // A page the host navigated to must stay at the top when the fit changes the layout.
         const current = this.currentVisiblePage
         const pinned = current && this.isPageAtTop(current.docIndex, current.pageIndex) ? { ...current } : null
         this.commitZoom(optimalScale)
-        if (pinned) this.pendingNavigation = pinned
+        // Never replace a request the host made in the meantime.
+        if (pinned && !this.pendingNavigation) this.pendingNavigation = pinned
       }
     },
   },
