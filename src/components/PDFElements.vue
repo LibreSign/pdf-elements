@@ -20,6 +20,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 :page="page"
                 :scale="scale"
                 @onMeasure="onMeasure($event, docIndex, pIndex)"
+                @onGeometry="onGeometry(docIndex, pIndex, $event)"
               />
                 <div
                 class="overlay"
@@ -145,14 +146,14 @@ import PDFPage from './PDFPage.vue'
 import DraggableElement from './DraggableElement.vue'
 import { readAsPDF, readAsArrayBuffer } from '../utils/asyncReader'
 import { clampPosition, getVisibleArea } from '../utils/geometry'
-import { getViewportWindow, isPageInViewport } from '../utils/pageBounds'
+import { getViewportWindow, isPageInViewport, findMostVisiblePage } from '../utils/pageBounds'
 import { objectIdExistsInDoc, findObjectPageIndex, updateObjectInDoc, removeObjectFromDoc } from '../utils/objectStore'
 import { getCachedMeasurement } from '../utils/measurements'
 import type { PDFDocumentEntry, PDFElementObject, PDFElementsAddingEndedPayload } from '../types'
 
 export default defineComponent({
   name: 'PDFElements',
-  emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click', 'pdf-elements:adding-ended'],
+  emits: ['pdf-elements:end-init', 'pdf-elements:delete-object', 'pdf-elements:object-click', 'pdf-elements:adding-ended', 'pdf-elements:page-change'],
   components: {
     PDFPage,
     DraggableElement,
@@ -252,6 +253,15 @@ export default defineComponent({
       pendingDragClientPos: null as { x: number; y: number } | null,
       pageBoundsVersion: 0,
       lastScrollTop: 0,
+      currentVisiblePage: null as { docIndex: number; pageIndex: number } | null,
+      currentPageRafId: 0,
+      resizeObserver: null as ResizeObserver | null,
+      pendingNavigation: null as { docIndex: number; pageIndex: number } | null,
+      // Scale at which each page last reserved its size; a page is ready when it matches the current scale.
+      _geometryReady: markRaw({}) as Record<string, number>,
+      _pageEntries: markRaw([]) as Array<{ docIndex: number; pageIndex: number }>,
+      _pageEntryIndex: markRaw({}) as Record<string, number>,
+      _pageEntriesSource: null as unknown,
       lastClientWidth: 0,
       nextObjectCounter: 0,
       isDraggingElement: false,
@@ -303,6 +313,19 @@ export default defineComponent({
     window.addEventListener('scroll', this.onViewportScroll, { passive: true })
     window.addEventListener('resize', this.onViewportScroll)
     this.$el?.addEventListener('scroll', this.onViewportScroll, { passive: true })
+    // `scroll` does not bubble: capture it to follow a scrollable ancestor hosting the viewer.
+    window.addEventListener('scroll', this.onAncestorScroll, { passive: true, capture: true })
+    if (typeof ResizeObserver !== 'undefined' && this.$el) {
+      this.resizeObserver = markRaw(new ResizeObserver(() => {
+        // Also fires when a hidden viewer (e.g. in an inactive tab) becomes visible.
+        this.flushPendingNavigation()
+        this.scheduleCurrentPageUpdate()
+      }))
+      this.resizeObserver.observe(this.$el)
+      for (let el = this.$el.parentElement; el && el !== document.body; el = el.parentElement) {
+        this.resizeObserver.observe(el)
+      }
+    }
     this.$el?.addEventListener('wheel', this.boundHandleWheel, { passive: false })
     this.$el?.addEventListener('touchstart', this.boundHandleTouchStart, { passive: false })
     this.$el?.addEventListener('touchmove', this.boundHandleTouchMove, { passive: false })
@@ -332,11 +355,20 @@ export default defineComponent({
     }
     this.detachAddingListeners()
     window.removeEventListener('scroll', this.onViewportScroll)
+    window.removeEventListener('scroll', this.onAncestorScroll, { capture: true })
     window.removeEventListener('resize', this.onViewportScroll)
     this.$el?.removeEventListener('scroll', this.onViewportScroll)
     if (this.viewportRafId) {
       window.cancelAnimationFrame(this.viewportRafId)
       this.viewportRafId = 0
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect()
+      this.resizeObserver = null
+    }
+    if (this.currentPageRafId) {
+      window.cancelAnimationFrame(this.currentPageRafId)
+      this.currentPageRafId = 0
     }
     if (this.hoverRafId) {
       window.cancelAnimationFrame(this.hoverRafId)
@@ -409,11 +441,15 @@ export default defineComponent({
 
       this.pdfDocuments = docs
       this._pageMeasurementCache = markRaw({})
+      this._geometryReady = markRaw({})
+      this.currentVisiblePage = null
+      this.pendingNavigation = null
       if (docs.length) {
         this.selectedDocIndex = 0
         this.selectedPageIndex = 0
         this.$emit('pdf-elements:end-init', { docsCount: docs.length })
         this.$nextTick(() => {
+          this.updateCurrentPage()
           if (this.autoFitZoom) {
             this.scheduleAutoFitZoom()
           }
@@ -780,6 +816,13 @@ export default defineComponent({
       return pageComponent ? (pageComponent.$el || pageComponent) : null
     },
 
+    onAncestorScroll(event) {
+      const target = event?.target
+      if (target && target !== this.$el && target !== document && target.contains?.(this.$el)) {
+        this.onViewportScroll()
+      }
+    },
+
     onViewportScroll() {
       if (this.viewportRafId) return
       this.viewportRafId = window.requestAnimationFrame(() => {
@@ -802,8 +845,228 @@ export default defineComponent({
             this.scheduleAutoFitZoom()
           }
         }
+        this.updateCurrentPage()
         this.viewportRafId = 0
       })
+    },
+
+    getPageWrapperElement(docIndex, pageIndex) {
+      const canvas = this.getPageCanvasElement(docIndex, pageIndex)
+      return canvas?.closest?.('.page-wrapper') || canvas || null
+    },
+
+    /** Ordered list of every page, rebuilt only when the document set changes. */
+    getPageEntries() {
+      if (this._pageEntriesSource !== this.pdfDocuments) {
+        const entries = []
+        const index = {}
+        this.pdfDocuments.forEach((doc, docIndex) => {
+          for (let pageIndex = 0; pageIndex < doc.pages.length; pageIndex++) {
+            index[`${docIndex}-${pageIndex}`] = entries.length
+            entries.push({ docIndex, pageIndex })
+          }
+        })
+        this._pageEntries = markRaw(entries)
+        this._pageEntryIndex = markRaw(index)
+        this._pageEntriesSource = this.pdfDocuments
+      }
+      return this._pageEntries
+    },
+
+    isPageGeometryReady(docIndex, pageIndex) {
+      return this._geometryReady[`${docIndex}-${pageIndex}`] === this.scale
+    },
+
+    isLayoutComplete() {
+      return this.getPageEntries().every((entry) => this.isPageGeometryReady(entry.docIndex, entry.pageIndex))
+    },
+
+    /** A page's position depends on every page before it, so all of them need their geometry. */
+    isNavigationReady(docIndex, pageIndex) {
+      const entries = this.getPageEntries()
+      const last = this._pageEntryIndex[`${docIndex}-${pageIndex}`]
+      for (let i = 0; i <= last; i++) {
+        if (!this.isPageGeometryReady(entries[i].docIndex, entries[i].pageIndex)) return false
+      }
+      return true
+    },
+
+    /**
+     * The element that actually scrolls the pages: the viewer itself when it has a
+     * bounded height, otherwise the nearest scrollable ancestor, or the window (null).
+     */
+    getScrollContainer() {
+      const root = this.$el
+      if (!root) return null
+      let el = root
+      while (el && el !== document.body && el !== document.documentElement) {
+        const scrollable = el === root || /(auto|scroll)/.test(window.getComputedStyle(el).overflowY)
+        if (scrollable && el.scrollHeight > el.clientHeight + 1) return el
+        el = el.parentElement
+      }
+      return null
+    },
+
+    getScrollViewport(container) {
+      if (container) {
+        const rect = container.getBoundingClientRect()
+        return { top: rect.top, left: rect.left, width: container.clientWidth || 0, height: container.clientHeight || 0, scrollTop: container.scrollTop || 0 }
+      }
+      return { top: 0, left: 0, width: window.innerWidth || 0, height: window.innerHeight || 0, scrollTop: window.scrollY || 0 }
+    },
+
+    /** The PDF page box only: the wrapper also holds the footer, which is not page content. */
+    getPageBoundsElement(docIndex, pageIndex) {
+      return this.getPageCanvasElement(docIndex, pageIndex) || this.getPageWrapperElement(docIndex, pageIndex)
+    },
+
+    getPageViewportRect(docIndex, pageIndex, containerRect) {
+      const element = this.getPageBoundsElement(docIndex, pageIndex)
+      if (!element?.getBoundingClientRect) return null
+      const rect = element.getBoundingClientRect()
+      return {
+        docIndex,
+        pageIndex,
+        top: rect.top - containerRect.top,
+        bottom: rect.bottom - containerRect.top,
+        left: (rect.left ?? 0) - (containerRect.left ?? 0),
+        right: (rect.right ?? rect.left ?? 0) - (containerRect.left ?? 0),
+      }
+    },
+
+    getCurrentPage() {
+      if (!this.$el?.getBoundingClientRect) return null
+      const entries = this.getPageEntries()
+      if (!entries.length) return null
+      const containerRect = this.getScrollViewport(this.getScrollContainer())
+      const viewHeight = containerRect.height
+      const viewWidth = containerRect.width
+      const rectAt = (i) => this.getPageViewportRect(entries[i].docIndex, entries[i].pageIndex, containerRect)
+
+      // Pages are stacked in document order: start from the last known page and
+      // only read the pages around the viewport instead of every page.
+      const known = this.currentVisiblePage
+      let first = known ? (this._pageEntryIndex[`${known.docIndex}-${known.pageIndex}`] ?? 0) : 0
+      while (first > 0) {
+        const previous = rectAt(first - 1)
+        if (!previous || previous.bottom <= 0) break
+        first--
+      }
+      while (first < entries.length - 1) {
+        const rect = rectAt(first)
+        if (rect && rect.bottom > 0) break
+        first++
+      }
+
+      const rects = []
+      for (let i = first; i < entries.length; i++) {
+        const rect = rectAt(i)
+        if (!rect) continue
+        if (rect.top >= viewHeight) break
+        if (this.isPageGeometryReady(rect.docIndex, rect.pageIndex)) rects.push(rect)
+      }
+      // While the layout is unknown (e.g. right after a zoom) keep reporting the known page.
+      return findMostVisiblePage(rects, viewHeight, { viewWidth, current: known }) ?? known
+    },
+
+    setCurrentPage(page) {
+      const previous = this.currentVisiblePage
+      if (previous && previous.docIndex === page.docIndex && previous.pageIndex === page.pageIndex) return
+      this.currentVisiblePage = { docIndex: page.docIndex, pageIndex: page.pageIndex }
+      this.$emit('pdf-elements:page-change', { docIndex: page.docIndex, pageIndex: page.pageIndex })
+    },
+
+    updateCurrentPage() {
+      const page = this.getCurrentPage()
+      if (page) this.setCurrentPage(page)
+    },
+
+    scheduleCurrentPageUpdate() {
+      if (this.currentPageRafId) return
+      this.currentPageRafId = window.requestAnimationFrame(() => {
+        this.currentPageRafId = 0
+        this.flushPendingNavigation()
+        this.updateCurrentPage()
+      })
+    },
+
+    onGeometry(docIndex, pageIndex, e) {
+      if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
+      this._geometryReady[`${docIndex}-${pageIndex}`] = e?.scale ?? this.scale
+      this.flushPendingNavigation()
+      this.scheduleCurrentPageUpdate()
+    },
+
+    flushPendingNavigation() {
+      const target = this.pendingNavigation
+      if (!target || !this.isViewerVisible() || !this.isNavigationReady(target.docIndex, target.pageIndex)) return
+      this.settleNavigation(target, this.scrollToPage(target.docIndex, target.pageIndex))
+    },
+
+    /** A viewer inside `display: none` (e.g. a hidden tab) has no layout to scroll. */
+    isViewerVisible() {
+      const el = this.$el
+      return typeof el?.checkVisibility === 'function' ? el.checkVisibility() : true
+    },
+
+    /** Whether the page is aligned with the top of the scroll viewport (within a pixel). */
+    isPageAtTop(docIndex, pageIndex) {
+      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
+      if (!wrapper?.getBoundingClientRect) return false
+      const viewport = this.getScrollViewport(this.getScrollContainer())
+      return Math.abs(wrapper.getBoundingClientRect().top - viewport.top) <= 1
+    },
+
+    /**
+     * A request that could not reach the page (scroll range clamped while later pages are
+     * still unknown) is kept to be corrected once they grow. One that got there is done,
+     * so later geometry reports never undo a scroll made by the user.
+     */
+    settleNavigation(target, scrolled) {
+      const keep = scrolled && !this.isLayoutComplete() && !this.isPageAtTop(target.docIndex, target.pageIndex)
+      // The request may have been replaced meanwhile (e.g. by a page-change listener).
+      if (!keep && this.pendingNavigation === target) this.pendingNavigation = null
+    },
+
+    scrollToPage(docIndex, pageIndex) {
+      const wrapper = this.getPageWrapperElement(docIndex, pageIndex)
+      if (!this.$el?.getBoundingClientRect || !wrapper?.getBoundingClientRect) return false
+      const container = this.getScrollContainer()
+      const viewport = this.getScrollViewport(container)
+      const top = Math.max(0, viewport.scrollTop + wrapper.getBoundingClientRect().top - viewport.top)
+      // Instant, so `scroll-behavior: smooth` on the host cannot defer the scroll.
+      const target = container || window
+      if (typeof target.scrollTo === 'function') {
+        target.scrollTo({ top, behavior: 'instant' })
+      } else if (container) {
+        container.scrollTop = top
+      }
+      // Explicit navigation makes the page current; it stays current while fully visible.
+      this.setCurrentPage({ docIndex, pageIndex })
+      return true
+    },
+
+    /**
+     * Scrolls the page to the top of the viewer. Valid requests are never dropped:
+     * when the layout is not known yet, the latest request runs as soon as it is.
+     */
+    goToPage(pageIndex, docIndex = 0) {
+      if (!Number.isInteger(docIndex) || docIndex < 0) return false
+      const doc = this.pdfDocuments[docIndex]
+      if (!doc || !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= doc.pages.length) return false
+      this.getPageEntries()
+      // markRaw keeps the object identity, so it can be told apart from a newer request.
+      const request = markRaw({ docIndex, pageIndex })
+      this.pendingNavigation = request
+      if (!this.isNavigationReady(docIndex, pageIndex)) return true
+      if (!this.isViewerVisible()) {
+        // Shown again before the resize observer reports it: retry on the next frame.
+        this.scheduleCurrentPageUpdate()
+        return true
+      }
+      const scrolled = this.scrollToPage(docIndex, pageIndex)
+      this.settleNavigation(request, scrolled)
+      return scrolled
     },
 
     handleMouseMove(event) {
@@ -1399,7 +1662,9 @@ export default defineComponent({
     onMeasure(e, docIndex, pageIndex) {
       if (docIndex < 0 || docIndex >= this.pdfDocuments.length) return
       this._pageMeasurementCache[`${docIndex}-${pageIndex}`] = null
+      this._geometryReady[`${docIndex}-${pageIndex}`] = e?.scale ?? this.scale
       this.cachePageBoundsForPage(docIndex, pageIndex)
+      this.scheduleCurrentPageUpdate()
       if (this.autoFitZoom) {
         this.scheduleAutoFitZoom()
       }
@@ -1469,10 +1734,16 @@ export default defineComponent({
         ))
       }
 
-      const optimalScale = this.calculateOptimalScale(maxCanvasWidth)
+      // Compare the scale that will really be applied: below the minimum zoom nothing changes.
+      const optimalScale = this.clampZoomScale(this.calculateOptimalScale(maxCanvasWidth))
       this.autoFitApplied = true
       if (Math.abs(optimalScale - this.scale) > 0.01) {
+        // A page the host navigated to must stay at the top when the fit changes the layout.
+        const current = this.currentVisiblePage
+        const pinned = current && this.isPageAtTop(current.docIndex, current.pageIndex) ? { ...current } : null
         this.commitZoom(optimalScale)
+        // Never replace a request the host made in the meantime.
+        if (pinned && !this.pendingNavigation) this.pendingNavigation = pinned
       }
     },
   },

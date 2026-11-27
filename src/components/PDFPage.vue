@@ -12,7 +12,7 @@ import { defineComponent, type PropType } from 'vue'
 
 export default defineComponent({
   name: 'PDFPage',
-  emits: ['onMeasure'],
+  emits: ['onMeasure', 'onGeometry'],
   props: {
     page: {
       type: Object as PropType<Promise<unknown>>,
@@ -34,10 +34,12 @@ export default defineComponent({
   watch: {
     scale(newScale) {
       this.dynamicScale = newScale
+      this.syncGeometry()
       this.render()
     },
   },
   mounted() {
+    this.syncGeometry()
     this.render()
   },
   beforeUnmount() {
@@ -61,6 +63,32 @@ export default defineComponent({
       this.$emit('onMeasure', {
         scale: this.dynamicScale,
       })
+    },
+    /**
+     * Reserves the page dimensions from the PDF.js viewport, independently of
+     * the (slower) canvas render task, so layout and navigation do not wait for it.
+     */
+    async syncGeometry() {
+      const _page = await this.page
+      const canvas = this.$refs.canvas
+      if (!canvas) return
+      const viewport = _page.getViewport({ scale: this.dynamicScale })
+      const width = Math.floor(viewport.width)
+      const height = Math.floor(viewport.height)
+      // Assigning a size clears the canvas (and resets its context), which would
+      // corrupt a render still painting: cancel it, a new one is already queued.
+      if (canvas.width !== width || canvas.height !== height) {
+        if (this.renderTask) {
+          try {
+            this.renderTask.cancel()
+          } catch {
+            // Ignore render cancellation errors.
+          }
+        }
+        canvas.width = width
+        canvas.height = height
+      }
+      this.$emit('onGeometry', { scale: this.dynamicScale })
     },
     async render() {
       if (this.isRendering) {
@@ -92,7 +120,13 @@ export default defineComponent({
           canvasContext: context,
           viewport,
         })
-        await this.renderTask.promise
+        try {
+          await this.renderTask.promise
+        } catch (error) {
+          // Cancelled because the size changed; the queued render takes over.
+          if ((error as { name?: string })?.name === 'RenderingCancelledException') return
+          throw error
+        }
         this.measure()
       } finally {
         this.isRendering = false

@@ -51,6 +51,7 @@ export type {
   PDFElementsAddingEndedPayload,
   PDFElementsAddingEndedPlacedPayload,
   PDFElementsAddingEndedReason,
+  PDFElementsPageChangePayload,
   PDFElementsPublicApi,
   PDFFormField,
   PDFFormFieldId,

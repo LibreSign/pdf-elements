@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 LibreCode coop and contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi } from 'vitest'
-import { shallowMount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mount, shallowMount, flushPromises } from '@vue/test-utils'
+import { markRaw } from 'vue'
 import PDFElements from '../../src/components/PDFElements.vue'
 
 const makeDoc = () => ({
@@ -916,5 +917,476 @@ describe('PDFElements business rules', () => {
     expect(scheduleSpy).toHaveBeenCalledTimes(1)
 
     rafSpy.mockRestore()
+  })
+})
+
+describe('PDFElements page navigation', () => {
+  type Box = { top: number; height: number; left?: number; width?: number; footer?: number }
+  // boxes[docIndex][pageIndex]: absolute layout of each page wrapper
+  const setup = (boxes: Box[][], { maxScroll = Infinity, ready = true, viewHeight = 500, viewWidth = 800 } = {}) => {
+    const { wrapper, ctx } = makeWrapper()
+    ctx.pdfDocuments = boxes.map((pages) => {
+      const doc = makeDoc()
+      doc.pages = pages.map(() => Promise.resolve())
+      return doc
+    })
+    const root = ctx.$el as HTMLElement
+    root.getBoundingClientRect = () => ({ top: 0, bottom: viewHeight, left: 0, right: viewWidth } as DOMRect)
+    // jsdom reports detached elements as not visible
+    ;(root as any).checkVisibility = () => true
+    Object.defineProperty(root, 'clientHeight', { value: viewHeight, configurable: true })
+    Object.defineProperty(root, 'clientWidth', { value: viewWidth, configurable: true })
+    Object.defineProperty(root, 'scrollHeight', { value: 100000, configurable: true })
+    let scrollTop = 0
+    Object.defineProperty(root, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = Math.min(value, maxScroll) },
+    })
+    const layout = { boxes }
+    // The wrapper also holds the page footer; the page bounds are the PDF page only.
+    const elementFor = (includeFooter: boolean) => (d: number, p: number) => {
+      const box = layout.boxes[d]?.[p]
+      if (!box) return null
+      const left = box.left ?? 0
+      const width = box.width ?? viewWidth
+      return {
+        getBoundingClientRect: () => ({
+          top: box.top - scrollTop,
+          bottom: box.top + box.height + (includeFooter ? box.footer ?? 0 : 0) - scrollTop,
+          left,
+          right: left + width,
+        }),
+      }
+    }
+    ctx.getPageWrapperElement = vi.fn(elementFor(true))
+    ctx.getPageBoundsElement = vi.fn(elementFor(false))
+    const markReady = () => {
+      boxes.forEach((pages, d) => pages.forEach((_, p) => ctx.onGeometry(d, p)))
+      flushFrames()
+    }
+    if (ready) markReady()
+    return { wrapper, ctx, root, layout, markReady }
+  }
+
+  const stacked = (...heights: number[]): Box[] => {
+    let top = 0
+    return heights.map((height) => {
+      const box = { top, height }
+      top += height + 20
+      return box
+    })
+  }
+
+  let frames: FrameRequestCallback[] = []
+  const flushFrames = () => {
+    const pending = frames
+    frames = []
+    pending.forEach((cb) => cb(0))
+  }
+
+  beforeEach(() => {
+    frames = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      frames.push(cb)
+      return frames.length
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('scrolls to the requested page and makes it current', () => {
+    const { ctx, root, wrapper } = setup([stacked(400, 400)])
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(root.scrollTop).toBe(420)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+    expect(wrapper.emitted('pdf-elements:page-change')).toEqual([
+      [{ docIndex: 0, pageIndex: 0 }],
+      [{ docIndex: 0, pageIndex: 1 }],
+    ])
+  })
+
+  it('resolves the page in the requested document', () => {
+    const { ctx, root } = setup([stacked(400, 400), [{ top: 900, height: 400 }, { top: 1320, height: 400 }]])
+    expect(ctx.goToPage(0, 1)).toBe(true)
+    expect(ctx.getPageWrapperElement).toHaveBeenCalledWith(1, 0)
+    expect(root.scrollTop).toBe(900)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 1, pageIndex: 0 })
+  })
+
+  it('rejects invalid pages', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    expect(ctx.goToPage(2)).toBe(false)
+    expect(ctx.goToPage(-1)).toBe(false)
+    expect(ctx.goToPage(1.5)).toBe(false)
+    expect(ctx.goToPage(0, 3)).toBe(false)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('navigates before the pages are rendered, once their geometry is known', () => {
+    const { ctx, root, markReady } = setup([stacked(400, 400)], { ready: false })
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(root.scrollTop).toBe(0)
+    ctx.onGeometry(0, 1) // the target alone is not enough: page 0 sits above it
+    expect(root.scrollTop).toBe(0)
+    markReady()
+    expect(root.scrollTop).toBe(420)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('lets the latest pending navigation win', () => {
+    const { ctx, root, markReady } = setup([stacked(400, 400, 400)], { ready: false })
+    ctx.goToPage(2)
+    ctx.goToPage(1)
+    markReady()
+    expect(root.scrollTop).toBe(420)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('identifies a short page followed by a tall one as current after navigating to it', () => {
+    const { ctx, root } = setup([stacked(200, 800)])
+    root.scrollTop = 220
+    ctx.updateCurrentPage()
+    expect(ctx.goToPage(0)).toBe(true)
+    expect(root.scrollTop).toBe(0)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 0 })
+  })
+
+  it('keeps a short last page current when the scroll is clamped', () => {
+    const { ctx, root, wrapper } = setup([stacked(400, 400)], { maxScroll: 20, viewHeight: 900 })
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(root.scrollTop).toBe(20)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+    expect(wrapper.emitted('pdf-elements:page-change')).toEqual([
+      [{ docIndex: 0, pageIndex: 0 }],
+      [{ docIndex: 0, pageIndex: 1 }],
+    ])
+    // both pages are fully visible after scrolling back: the navigated page stays current
+    root.scrollTop = 0
+    ctx.updateCurrentPage()
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('accounts for horizontal clipping and mixed orientations', () => {
+    // portrait page 400 wide, landscape page 1000 wide in an 800px wide viewport
+    const { ctx, layout } = setup([[{ top: 0, height: 300, left: 0, width: 400 }, { top: 320, height: 300, left: -500, width: 1000 }]])
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 0 })
+    layout.boxes[0][1].left = 0
+    ctx.currentVisiblePage = null
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 0 })
+    layout.boxes[0][0] = { top: 0, height: 300, left: -380, width: 400 }
+    ctx.currentVisiblePage = null
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('does not pin the target after the user scrolls away', () => {
+    const { ctx, root } = setup([stacked(400, 1200)])
+    expect(ctx.goToPage(0)).toBe(true)
+    root.scrollTop = 420
+    ctx.updateCurrentPage()
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('keeps the navigated page while zoom leaves it fully visible, then follows the geometry', () => {
+    const { ctx, layout } = setup([stacked(400, 1200)])
+    expect(ctx.goToPage(0)).toBe(true)
+    layout.boxes[0] = [{ top: 0, height: 200 }, { top: 220, height: 600 }]
+    ctx.updateCurrentPage()
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 0 })
+    layout.boxes[0] = [{ top: 0, height: 800 }, { top: 820, height: 600 }]
+    ctx.updateCurrentPage()
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 0 })
+  })
+
+  it('recomputes the current page when the container is resized', () => {
+    const observers: Array<() => void> = []
+    const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: () => void) { observers.push(cb) }
+      observe() {}
+      disconnect() { disconnect() }
+    })
+    const { wrapper, ctx, root } = setup([stacked(400, 400)], { viewHeight: 450 })
+    expect(observers).toHaveLength(1)
+    root.scrollTop = 100
+    ctx.updateCurrentPage()
+    Object.defineProperty(root, 'clientHeight', { value: 800, configurable: true })
+    observers[0]()
+    flushFrames()
+    expect(wrapper.emitted('pdf-elements:page-change')).toEqual([
+      [{ docIndex: 0, pageIndex: 0 }],
+      [{ docIndex: 0, pageIndex: 1 }],
+    ])
+    wrapper.unmount()
+    expect(disconnect).toHaveBeenCalled()
+  })
+
+  it('emits page-change only when the visible page changes', () => {
+    const { wrapper, ctx, root } = setup([stacked(400, 400)])
+    ctx.updateCurrentPage()
+    ctx.updateCurrentPage()
+    root.scrollTop = 420
+    ctx.updateCurrentPage()
+    expect(wrapper.emitted('pdf-elements:page-change')).toEqual([
+      [{ docIndex: 0, pageIndex: 0 }],
+      [{ docIndex: 0, pageIndex: 1 }],
+    ])
+  })
+
+  it('emits the initial page-change once geometry is known', () => {
+    const { wrapper, ctx } = setup([stacked(400, 400)], { ready: false })
+    ctx.updateCurrentPage()
+    expect(wrapper.emitted('pdf-elements:page-change')).toBeUndefined()
+    ctx.onGeometry(0, 0)
+    flushFrames()
+    expect(wrapper.emitted('pdf-elements:page-change')).toEqual([[{ docIndex: 0, pageIndex: 0 }]])
+  })
+
+  it('only reads pages around the viewport', () => {
+    const { ctx, root } = setup([stacked(...Array.from({ length: 200 }, () => 400))])
+    root.scrollTop = 420 * 100
+    ctx.updateCurrentPage()
+    ctx.getPageBoundsElement.mockClear()
+    root.scrollTop = 420 * 101
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 101 })
+    expect(ctx.getPageBoundsElement.mock.calls.length).toBeLessThan(10)
+  })
+
+  it('does not count the page footer as visible page area', () => {
+    // Page 0 is 100px high plus a 50px footer; scrolled by 100px only the footer is on screen.
+    const { ctx, root } = setup([[{ top: 0, height: 100, footer: 50 }, { top: 170, height: 2000 }]])
+    root.scrollTop = 100
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('navigates with the new layout when zoom and goToPage run in the same tick', () => {
+    const { wrapper, ctx, root, layout } = setup([stacked(400, 400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    ctx.commitZoom(0.5)
+    expect(ctx.goToPage(2)).toBe(true)
+    // The pages have not re-reserved their size for the new scale yet: nothing scrolled.
+    expect(root.scrollTop).toBe(0)
+    layout.boxes[0] = stacked(200, 200, 200)
+    layout.boxes[0].forEach((_, p) => ctx.onGeometry(0, p))
+    expect(root.scrollTop).toBe(440)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 2 })
+    const events = wrapper.emitted('pdf-elements:page-change') ?? []
+    expect(events[events.length - 1]).toEqual([{ docIndex: 0, pageIndex: 2 }])
+  })
+
+  it('ignores a render finished for an older scale when checking geometry', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    vi.spyOn(ctx, 'cachePageBoundsForPage').mockImplementation(() => {})
+    const initialScale = ctx.scale
+    ctx.commitZoom(0.5)
+    ctx.onMeasure({ scale: initialScale }, 0, 0)
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(false)
+    ctx.onMeasure({ scale: 0.5 }, 0, 0)
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(true)
+  })
+
+  it('rejects document indices that are not integers', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    expect(ctx.goToPage(0, '0' as unknown as number)).toBe(false)
+    expect(ctx.goToPage(0, 'length' as unknown as number)).toBe(false)
+    expect(ctx.goToPage(0, 0.5)).toBe(false)
+  })
+
+  it('stays ready when the scale returns to the one the pages already reserved', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    const initialScale = ctx.scale
+    ctx.commitZoom(0.5)
+    ctx.commitZoom(initialScale)
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(ctx.pendingNavigation).toBeNull()
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('does not trust a geometry report made for another scale', () => {
+    const { ctx } = setup([stacked(400, 400)], { ready: false })
+    ctx.onGeometry(0, 0, { scale: ctx.scale + 1 })
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(false)
+    ctx.onGeometry(0, 0, { scale: ctx.scale })
+    expect(ctx.isPageGeometryReady(0, 0)).toBe(true)
+  })
+
+  it('keeps the request until the whole layout is known and corrects an early clamp', () => {
+    // The scroll range is still too short to reach page 1 (clamped at 100).
+    const { ctx } = setup([stacked(400, 400, 400)], { ready: false, maxScroll: 100 })
+    const scrollSpy = vi.spyOn(ctx, 'scrollToPage')
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
+    // the last page is still unknown, so the scroll range may still grow
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 1 })
+    ctx.onGeometry(0, 2)
+    expect(scrollSpy).toHaveBeenCalledTimes(2)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('drops a request that reached its page so late geometry never undoes a user scroll', () => {
+    const { ctx, root } = setup([stacked(400, 400, 400)], { ready: false })
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(root.scrollTop).toBe(420)
+    expect(ctx.pendingNavigation).toBeNull()
+    root.scrollTop = 0
+    ctx.onGeometry(0, 2)
+    expect(root.scrollTop).toBe(0)
+  })
+
+  it('keeps the navigated page at the top when auto-fit changes the zoom', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    vi.spyOn(ctx, 'calculateOptimalScale').mockReturnValue(0.5)
+    expect(ctx.goToPage(1)).toBe(true)
+    ctx.adjustZoomToFit(true)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+
+  it('does not pin the page when the auto-fit scale is below the minimum zoom and nothing changes', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    ctx.commitZoom(0.5)
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    expect(ctx.goToPage(1)).toBe(true)
+    vi.spyOn(ctx, 'calculateOptimalScale').mockReturnValue(0.457)
+    ctx.adjustZoomToFit(true)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('does not replace a newer request with the auto-fit pin', () => {
+    const { ctx } = setup([stacked(400, 400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    vi.spyOn(ctx, 'calculateOptimalScale').mockReturnValue(0.6)
+    expect(ctx.goToPage(1)).toBe(true)
+    ctx.pendingNavigation = { docIndex: 0, pageIndex: 2 }
+    ctx.adjustZoomToFit(true)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 2 })
+  })
+
+  it('keeps a request made by a page-change listener while the navigation lands', () => {
+    const { ctx } = setup([stacked(400, 400, 400)], { ready: false })
+    ctx.onGeometry(0, 0)
+    ctx.onGeometry(0, 1)
+    const setCurrentPage = ctx.setCurrentPage.bind(ctx)
+    let reentered = false
+    vi.spyOn(ctx, 'setCurrentPage').mockImplementation((page: { docIndex: number; pageIndex: number }) => {
+      setCurrentPage(page)
+      if (!reentered) {
+        reentered = true
+        ctx.goToPage(2)
+      }
+    })
+    expect(ctx.goToPage(1)).toBe(true)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 2 })
+  })
+
+  it('keeps a request made while the viewer is hidden and applies it once it is visible', () => {
+    const observers: Array<() => void> = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: () => void) { observers.push(cb) }
+      observe() {}
+      disconnect() {}
+    })
+    const { ctx, root } = setup([stacked(400, 400, 400)])
+    let visible = false
+    ;(root as any).checkVisibility = () => visible
+    expect(ctx.goToPage(2)).toBe(true)
+    expect(root.scrollTop).toBe(0)
+    expect(ctx.pendingNavigation).toEqual({ docIndex: 0, pageIndex: 2 })
+    visible = true
+    observers[0]()
+    expect(root.scrollTop).toBe(840)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 2 })
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('applies a request made while hidden on the next frame when the viewer is shown again quickly', () => {
+    const { ctx, root } = setup([stacked(400, 400, 400)])
+    let visible = false
+    ;(root as any).checkVisibility = () => visible
+    expect(ctx.goToPage(2)).toBe(true)
+    visible = true
+    flushFrames()
+    expect(root.scrollTop).toBe(840)
+    expect(ctx.pendingNavigation).toBeNull()
+  })
+
+  it('keeps the current page when asked right after a zoom, before the pages report their size', () => {
+    const { ctx } = setup([stacked(400, 400)])
+    vi.spyOn(ctx, 'cachePageBounds').mockImplementation(() => {})
+    expect(ctx.goToPage(1)).toBe(true)
+    ctx.commitZoom(0.5)
+    expect(ctx.getCurrentPage()).toEqual({ docIndex: 0, pageIndex: 1 })
+  })
+})
+
+describe('PDFElements with a real PDFPage', () => {
+  const makeRealPage = (width: number, height: number) => ({
+    getViewport: ({ scale }: { scale: number }) => ({ width: width * scale, height: height * scale }),
+    // The canvas render never finishes.
+    render: vi.fn(() => ({ promise: new Promise<void>(() => {}), cancel: vi.fn() })),
+  })
+
+  it('navigates before the canvas render completes', async () => {
+    ;(HTMLCanvasElement.prototype as any).getContext = vi.fn(() => ({}))
+    const scrollTo = vi.fn()
+    vi.stubGlobal('scrollTo', scrollTo)
+    const wrapper = mount(PDFElements, {
+      props: { initFiles: [] },
+      global: { stubs: { DraggableElement: true } },
+    })
+    const ctx = wrapper.vm as any
+    ;(wrapper.element as any).checkVisibility = () => true
+    const pages = [makeRealPage(612, 792), makeRealPage(792, 612), makeRealPage(300, 200)]
+    ctx.pdfDocuments = [{
+      name: 'doc', file: null, pdfDoc: null, numPages: 3,
+      pages: markRaw(pages.map((p) => Promise.resolve(p))),
+      pageWidths: [612, 792, 300], pagesScale: [1, 1, 1],
+      allObjects: [[], [], []],
+    }]
+    await flushPromises()
+
+    expect(pages[0].render).toHaveBeenCalled()
+    expect(wrapper.findAllComponents({ name: 'PDFPage' }).some((c) => c.emitted('onMeasure'))).toBe(false)
+    expect(ctx.goToPage(2)).toBe(true)
+    expect(ctx.pendingNavigation).toBeNull()
+    expect(scrollTo).toHaveBeenCalled()
+    expect(wrapper.emitted('pdf-elements:page-change')?.slice(-1)[0]).toEqual([{ docIndex: 0, pageIndex: 2 }])
+    expect(ctx.goToPage(3)).toBe(false)
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+
+  it('follows a scrollable ancestor of the viewer', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const wrapper = mount(PDFElements, {
+      attachTo: host,
+      props: { initFiles: [] },
+      global: { stubs: { PDFPage: true, DraggableElement: true } },
+    })
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1)
+    host.dispatchEvent(new Event('scroll'))
+    expect(raf).toHaveBeenCalled()
+    raf.mockClear()
+    // scrolling an unrelated element does not trigger a recalculation
+    const other = document.createElement('div')
+    document.body.appendChild(other)
+    other.dispatchEvent(new Event('scroll'))
+    expect(raf).not.toHaveBeenCalled()
+    raf.mockRestore()
+    wrapper.unmount()
+    host.remove()
+    other.remove()
   })
 })

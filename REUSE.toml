@@ -21,6 +21,7 @@ path = [
     "vitest.config.ts",
     "examples/**",
     "tests/**",
+    "e2e/fixtures/**",
     "dist/**",
     "img/**",
 ]
